@@ -1,0 +1,120 @@
+name: Deploy Hetzner
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  APP_DIR: /opt/evopace
+  WWW_DIR: /var/www/evopace
+  PUBLIC_ORIGIN: http://46.225.12.24
+  API_PORT: "3334"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate
+        run: |
+          npm run prisma:generate
+          npm run lint
+          npm run build:api
+
+      - name: Build web for IP path
+        env:
+          VITE_API_URL: /evopace/api
+          VITE_BASE_PATH: /evopace/
+        run: npm run build
+
+      - name: Create deploy bundles
+        run: |
+          tar \
+            --exclude='.git' \
+            --exclude='node_modules' \
+            --exclude='dist' \
+            --exclude='dist-server' \
+            --exclude='.env' \
+            --exclude='.env.production' \
+            --exclude='evopace-source.tgz' \
+            --exclude='evopace-web.tgz' \
+            -czf evopace-source.tgz .
+          tar -czf evopace-web.tgz -C dist .
+
+      - name: Copy bundles to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.HETZNER_HOST }}
+          username: ${{ secrets.HETZNER_USER }}
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          port: ${{ secrets.HETZNER_SSH_PORT || 22 }}
+          source: "evopace-source.tgz,evopace-web.tgz"
+          target: /tmp
+
+      - name: Deploy on server
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.HETZNER_HOST }}
+          username: ${{ secrets.HETZNER_USER }}
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          port: ${{ secrets.HETZNER_SSH_PORT || 22 }}
+          script: |
+            set -euo pipefail
+
+            APP_DIR="${{ env.APP_DIR }}"
+            WWW_DIR="${{ env.WWW_DIR }}"
+            API_PORT="${{ env.API_PORT }}"
+            PUBLIC_ORIGIN="${{ env.PUBLIC_ORIGIN }}"
+
+            sudo mkdir -p "$APP_DIR" "$WWW_DIR" /etc/nginx/snippets
+            sudo chown -R "$USER":"$USER" "$APP_DIR" "$WWW_DIR"
+
+            rm -rf "$APP_DIR"/*
+            tar -xzf /tmp/evopace-source.tgz -C "$APP_DIR"
+            rm -rf "$WWW_DIR"/*
+            tar -xzf /tmp/evopace-web.tgz -C "$WWW_DIR"
+
+            cat > "$APP_DIR/.env.production" <<ENV
+            DATABASE_URL=postgresql://postgres:${{ secrets.EVOPACE_POSTGRES_PASSWORD }}@postgres:5432/evopace?schema=public
+            JWT_SECRET=${{ secrets.EVOPACE_JWT_SECRET }}
+            JWT_EXPIRES_IN=7d
+            PORT=3334
+            CORS_ORIGIN=$PUBLIC_ORIGIN
+            POSTGRES_DB=evopace
+            POSTGRES_USER=postgres
+            POSTGRES_PASSWORD=${{ secrets.EVOPACE_POSTGRES_PASSWORD }}
+            EVOPACE_API_PORT=$API_PORT
+            ENV
+
+            cd "$APP_DIR"
+            docker compose -f docker-compose.prod.yml --env-file .env.production build api
+            docker compose -f docker-compose.prod.yml --env-file .env.production up -d postgres
+            docker compose -f docker-compose.prod.yml --env-file .env.production run --rm api npx prisma migrate deploy
+            docker compose -f docker-compose.prod.yml --env-file .env.production up -d api
+
+            sudo cp "$APP_DIR/deploy/nginx/evopace.locations.conf" /etc/nginx/snippets/evopace.locations.conf
+
+            if sudo nginx -T 2>/dev/null | grep -q "evopace.locations.conf"; then
+              sudo nginx -t
+              sudo systemctl reload nginx
+            else
+              echo "Snippet copied to /etc/nginx/snippets/evopace.locations.conf"
+              echo "Add this inside the active server { } block and reload nginx:"
+              echo "include /etc/nginx/snippets/evopace.locations.conf;"
+            fi
+
+            curl -fsS "http://127.0.0.1:$API_PORT/api/health"

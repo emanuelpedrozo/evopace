@@ -95,3 +95,41 @@ Login demo:
 email: demo@evopace.app
 senha: evopace123
 ```
+
+## Deploy Hetzner sem DNS
+
+O deploy por GitHub Actions publica a aplicação em path:
+
+```text
+http://46.225.12.24/evopace/
+```
+
+A API fica atrás do NGINX em:
+
+```text
+http://46.225.12.24/evopace/api/
+```
+
+Pré-requisitos no servidor:
+
+- Docker com plugin `docker compose`;
+- NGINX instalado;
+- usuário SSH com permissão para `sudo`;
+- incluir o snippet abaixo dentro do `server { }` ativo do NGINX:
+
+```nginx
+include /etc/nginx/snippets/evopace.locations.conf;
+```
+
+Secrets necessários no GitHub:
+
+```text
+HETZNER_HOST=46.225.12.24
+HETZNER_USER=<usuario-ssh>
+HETZNER_SSH_KEY=<chave-privada>
+HETZNER_SSH_PORT=22
+EVOPACE_JWT_SECRET=<segredo-forte>
+EVOPACE_POSTGRES_PASSWORD=<senha-forte>
+```
+
+O workflow copia o frontend para `/var/www/evopace`, sobe a API e PostgreSQL via `docker-compose.prod.yml` em `/opt/evopace`, roda migrations e recarrega o NGINX quando o snippet já estiver incluído.
