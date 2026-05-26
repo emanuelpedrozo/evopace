@@ -43,6 +43,9 @@ jobs:
 
       - name: Create deploy bundles
         run: |
+          rm -f evopace-source.tgz evopace-web.tgz
+          rm -rf /tmp/evopace-deploy
+          mkdir -p /tmp/evopace-deploy
           tar \
             --exclude='.git' \
             --exclude='node_modules' \
@@ -52,8 +55,10 @@ jobs:
             --exclude='.env.production' \
             --exclude='evopace-source.tgz' \
             --exclude='evopace-web.tgz' \
-            -czf evopace-source.tgz .
-          tar -czf evopace-web.tgz -C dist .
+            -czf /tmp/evopace-deploy/evopace-source.tgz .
+          tar -czf /tmp/evopace-deploy/evopace-web.tgz -C dist .
+          cp /tmp/evopace-deploy/evopace-source.tgz .
+          cp /tmp/evopace-deploy/evopace-web.tgz .
 
       - name: Copy bundles to server
         uses: appleboy/scp-action@v0.1.7
