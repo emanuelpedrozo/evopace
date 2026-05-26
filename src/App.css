@@ -293,6 +293,7 @@ main {
 .stat,
 .panel,
 .workout-block,
+.exercise-editor,
 .library-grid article,
 .assessment-list article,
 .social-feed article,
@@ -661,6 +662,34 @@ input[type='range'] {
   justify-content: space-between;
   gap: 14px;
   margin-bottom: 14px;
+}
+
+.builder-grid {
+  display: grid;
+  grid-template-columns: 1.2fr 180px 1fr;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.exercise-editor-list {
+  display: grid;
+  gap: 12px;
+}
+
+.exercise-editor {
+  padding: 14px;
+  display: grid;
+  grid-template-columns: minmax(180px, 1.2fr) minmax(140px, 0.8fr) minmax(140px, 0.8fr) repeat(4, minmax(78px, 0.45fr));
+  gap: 12px;
+  align-items: end;
+}
+
+.exercise-editor label.wide {
+  grid-column: 1 / -2;
+}
+
+.exercise-editor textarea {
+  min-height: 72px;
 }
 
 .workout-actions {
@@ -1056,6 +1085,8 @@ input[type='range'] {
 
   .form-grid,
   .form-grid.compact,
+  .builder-grid,
+  .exercise-editor,
   .library-grid,
   .cycle-grid,
   .kanban,

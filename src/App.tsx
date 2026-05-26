@@ -24,210 +24,31 @@ import {
   Users,
   Zap,
 } from 'lucide-react'
+import { apiRequest, TOKEN_KEY } from './api/client'
+import type {
+  ApiAssessment,
+  ApiRun,
+  ApiUser,
+  ApiWorkout,
+  Assessment,
+  DashboardResponse,
+  Exercise,
+  Goal,
+  Level,
+  Metrics,
+  ModuleId,
+  NavigationItem,
+  Profile,
+  RunEntry,
+  RunType,
+  Sex,
+  SplitType,
+  StatIcon,
+  UserRole,
+  WorkoutDay,
+  WorkoutExercise,
+} from './types'
 import './App.css'
-
-type ModuleId =
-  | 'dashboard'
-  | 'cadastro'
-  | 'avaliacao'
-  | 'musculacao'
-  | 'corrida'
-  | 'hibrido'
-  | 'periodizacao'
-  | 'social'
-  | 'admin'
-
-type UserRole = 'Aluno' | 'Personal Trainer' | 'Administrador'
-type Goal =
-  | 'emagrecimento'
-  | 'hipertrofia'
-  | 'performance'
-  | 'corrida 5km'
-  | 'corrida 10km'
-  | 'meia maratona'
-  | 'maratona'
-  | 'recomposição corporal'
-type Level = 'iniciante' | 'intermediário' | 'avançado'
-type Sex = 'feminino' | 'masculino' | 'outro'
-type SplitType = 'ABC' | 'ABCD' | 'Full body' | 'Upper/lower' | 'Push/Pull/Legs'
-type RunType =
-  | 'regenerativo'
-  | 'intervalado'
-  | 'tiro'
-  | 'longo'
-  | 'tempo run'
-  | 'fartlek'
-  | 'subida'
-  | 'progressivo'
-
-type Profile = {
-  name: string
-  email: string
-  age: number
-  weight: number
-  height: number
-  sex: Sex
-  goal: Goal
-  level: Level
-  role: UserRole
-  restrictions: string
-  experience: string
-  sleep: number
-  fatigue: number
-  soreness: number
-}
-
-type Exercise = {
-  id: string
-  name: string
-  target: string
-  secondary: string
-  equipment: string
-  difficulty: Level
-  instruction: string
-  video: string
-}
-
-type WorkoutExercise = Exercise & {
-  sets: number
-  reps: string
-  load: number
-  rest: number
-  rpe: number
-}
-
-type WorkoutDay = {
-  id: string
-  name: string
-  split: SplitType
-  focus: string
-  exercises: WorkoutExercise[]
-}
-
-type RunEntry = {
-  id: string
-  date: string
-  type: RunType
-  distance: number
-  time: number
-  pace: string
-  elevation: number
-  avgHr: number
-  maxHr: number
-  cadence: number
-  effort: number
-}
-
-type Assessment = {
-  id: string
-  date: string
-  weight: number
-  bodyFat: number
-  muscleMass: number
-  waist: number
-  chest: number
-  thigh: number
-  vo2: number
-  restingHr: number
-}
-
-type Metrics = {
-  workoutVolume: number
-  weeklyKm: number
-  recovery: number
-  avgPace: string
-  bestPace: string
-  bodyFatDelta: number
-  weight: number
-  vo2: number
-  restingHr: number
-}
-
-type ApiUser = {
-  id: string
-  name: string
-  email: string
-  age: number
-  weight: number
-  height: number
-  sex: Sex
-  goal: Goal
-  level: Level
-  role: UserRole
-  restrictions: string | null
-  experience: string | null
-  sleep: number
-  fatigue: number
-  soreness: number
-}
-
-type ApiWorkout = {
-  id: string
-  name: string
-  split: SplitType
-  focus: string
-  exercises: {
-    id: string
-    name: string
-    video: string | null
-    instruction: string
-    targetMuscle: string
-    secondaryMuscles: string | null
-    equipment: string
-    difficulty: Level
-    sets: number
-    reps: string
-    load: number
-    restSeconds: number
-    rpe: number
-  }[]
-}
-
-type ApiRun = {
-  id: string
-  date: string
-  type: RunType
-  distance: number
-  timeMinutes: number
-  paceSeconds: number
-  elevation: number
-  avgHr: number
-  maxHr: number
-  cadence: number
-  effort: number
-}
-
-type ApiAssessment = {
-  id: string
-  date: string
-  weight: number
-  bodyFat: number
-  muscleMass: number
-  waist: number
-  chest: number
-  thigh: number
-  vo2: number
-  restingHr: number
-}
-
-type DashboardResponse = {
-  metrics: {
-    workoutVolume: number
-    weeklyKm: number
-    averagePaceSeconds: number
-    bestPaceSeconds: number
-    recoveryScore: number
-    weight: number
-    vo2: number | null
-    restingHr: number | null
-    bodyFatDelta: number | null
-  }
-  recentRuns: ApiRun[]
-  workouts: ApiWorkout[]
-}
-
-const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3334/api'
-const TOKEN_KEY = 'evopace.token'
 
 const goals: Goal[] = [
   'emagrecimento',
@@ -243,6 +64,7 @@ const goals: Goal[] = [
 const levels: Level[] = ['iniciante', 'intermediário', 'avançado']
 const roles: UserRole[] = ['Aluno', 'Personal Trainer', 'Administrador']
 const sexes: Sex[] = ['feminino', 'masculino', 'outro']
+const splitTypes: SplitType[] = ['ABC', 'ABCD', 'Full body', 'Upper/lower', 'Push/Pull/Legs']
 const runTypes: RunType[] = [
   'regenerativo',
   'intervalado',
@@ -450,7 +272,7 @@ const navigation = [
   { id: 'periodizacao', label: 'Periodização', icon: CalendarDays },
   { id: 'social', label: 'Social', icon: Medal },
   { id: 'admin', label: 'Admin', icon: ShieldCheck },
-] satisfies { id: ModuleId; label: string; icon: typeof BarChart3 }[]
+] satisfies NavigationItem[]
 
 function formatNumber(value: number, digits = 0) {
   return new Intl.NumberFormat('pt-BR', {
@@ -472,29 +294,6 @@ function secondsToPace(totalSeconds: number) {
   const minutes = Math.floor(totalSeconds / 60)
   const seconds = Math.round(totalSeconds % 60)
   return `${minutes}:${String(seconds).padStart(2, '0')}`
-}
-
-async function apiRequest<T>(path: string, options: RequestInit & { token?: string } = {}) {
-  const { token, headers, ...requestOptions } = options
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...requestOptions,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...headers,
-    },
-  })
-
-  if (!response.ok) {
-    const body = await response.json().catch(() => null)
-    throw new Error(body?.error ?? `HTTP_${response.status}`)
-  }
-
-  if (response.status === 204) {
-    return null as T
-  }
-
-  return response.json() as Promise<T>
 }
 
 function toProfile(user: ApiUser): Profile {
@@ -612,6 +411,28 @@ function parseReps(reps: string) {
   return Number.parseInt(reps, 10) || 0
 }
 
+function createDraftExercise(source = exerciseLibrary[0]): WorkoutExercise {
+  return {
+    ...source,
+    id: `draft-exercise-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    sets: 3,
+    reps: '8-10',
+    load: 0,
+    rest: 90,
+    rpe: 7,
+  }
+}
+
+function createDraftWorkout(): WorkoutDay {
+  return {
+    id: `draft-workout-${Date.now()}`,
+    name: 'Novo treino',
+    split: 'Full body',
+    focus: 'Força geral',
+    exercises: [createDraftExercise()],
+  }
+}
+
 function getWorkoutVolume(workouts: WorkoutDay[]) {
   return workouts.reduce(
     (total, workout) =>
@@ -700,7 +521,7 @@ function Stat({
   detail,
   tone = 'neutral',
 }: {
-  icon: typeof Activity
+  icon: StatIcon
   label: string
   value: string
   detail: string
@@ -1177,6 +998,44 @@ function App() {
     }
   }
 
+  async function createWorkout(workout: WorkoutDay) {
+    if (!authToken) return
+
+    setSavingAction('workout-create')
+    setActionMessage('')
+
+    try {
+      await apiRequest<{ workout: ApiWorkout }>('/workouts', {
+        method: 'POST',
+        token: authToken,
+        body: JSON.stringify(toWorkoutPayload(workout)),
+      })
+      await refreshAuthenticatedData()
+      setActionMessage('Treino criado no banco.')
+    } catch (error) {
+      setActionMessage(error instanceof Error ? error.message : 'Falha ao criar treino.')
+    } finally {
+      setSavingAction('')
+    }
+  }
+
+  async function deleteWorkout(id: string) {
+    if (!authToken) return
+
+    setSavingAction(`workout-delete-${id}`)
+    setActionMessage('')
+
+    try {
+      await apiRequest<null>(`/workouts/${id}`, { method: 'DELETE', token: authToken })
+      await refreshAuthenticatedData()
+      setActionMessage('Treino excluído.')
+    } catch (error) {
+      setActionMessage(error instanceof Error ? error.message : 'Falha ao excluir treino.')
+    } finally {
+      setSavingAction('')
+    }
+  }
+
   async function saveWorkoutExecution(workout: WorkoutDay) {
     if (!authToken) return
 
@@ -1380,6 +1239,8 @@ function App() {
         {activeModule === 'musculacao' ? (
           <Strength
             completedSets={completedSets}
+            onCreateWorkout={createWorkout}
+            onDeleteWorkout={deleteWorkout}
             profile={profile}
             restSeconds={restSeconds}
             setCompletedSets={setCompletedSets}
@@ -1815,6 +1676,8 @@ function Assessments({
 
 function Strength({
   completedSets,
+  onCreateWorkout,
+  onDeleteWorkout,
   onSaveExecution,
   onSaveWorkout,
   profile,
@@ -1826,6 +1689,8 @@ function Strength({
   workouts,
 }: {
   completedSets: Record<string, boolean>
+  onCreateWorkout: (workout: WorkoutDay) => Promise<void>
+  onDeleteWorkout: (id: string) => Promise<void>
   onSaveExecution: (workout: WorkoutDay) => Promise<void>
   onSaveWorkout: (workout: WorkoutDay) => Promise<void>
   profile: Profile
@@ -1836,8 +1701,177 @@ function Strength({
   updateWorkoutLoad: (workoutId: string, exerciseId: string, load: number) => void
   workouts: WorkoutDay[]
 }) {
+  const [draft, setDraft] = useState<WorkoutDay>(() => createDraftWorkout())
+  const isEditing = workouts.some((workout) => workout.id === draft.id)
+
+  function updateDraftExercise(index: number, changes: Partial<WorkoutExercise>) {
+    setDraft((current) => ({
+      ...current,
+      exercises: current.exercises.map((exercise, exerciseIndex) =>
+        exerciseIndex === index ? { ...exercise, ...changes } : exercise,
+      ),
+    }))
+  }
+
+  function removeDraftExercise(index: number) {
+    setDraft((current) => ({
+      ...current,
+      exercises:
+        current.exercises.length > 1
+          ? current.exercises.filter((_, exerciseIndex) => exerciseIndex !== index)
+          : current.exercises,
+    }))
+  }
+
+  function duplicateWorkout(workout: WorkoutDay) {
+    setDraft({
+      ...workout,
+      id: `draft-workout-${Date.now()}`,
+      name: `${workout.name} cópia`,
+      exercises: workout.exercises.map((exercise) => ({
+        ...exercise,
+        id: `draft-exercise-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      })),
+    })
+  }
+
   return (
     <div className="module-grid">
+      <Panel title={isEditing ? 'Editar Treino' : 'Criar Treino'} action={isEditing ? 'Modo edição' : 'Novo'}>
+        <div className="builder-grid">
+          <label>
+            Nome
+            <input
+              value={draft.name}
+              onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
+            />
+          </label>
+          <label>
+            Divisão
+            <select
+              value={draft.split}
+              onChange={(event) => setDraft((current) => ({ ...current, split: event.target.value as SplitType }))}
+            >
+              {splitTypes.map((split) => (
+                <option key={split}>{split}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Foco
+            <input
+              value={draft.focus}
+              onChange={(event) => setDraft((current) => ({ ...current, focus: event.target.value }))}
+            />
+          </label>
+        </div>
+
+        <div className="exercise-editor-list">
+          {draft.exercises.map((exercise, index) => (
+            <article className="exercise-editor" key={exercise.id}>
+              <label>
+                Exercício
+                <input
+                  value={exercise.name}
+                  onChange={(event) => updateDraftExercise(index, { name: event.target.value })}
+                />
+              </label>
+              <label>
+                Músculo alvo
+                <input
+                  value={exercise.target}
+                  onChange={(event) => updateDraftExercise(index, { target: event.target.value })}
+                />
+              </label>
+              <label>
+                Equipamento
+                <input
+                  value={exercise.equipment}
+                  onChange={(event) => updateDraftExercise(index, { equipment: event.target.value })}
+                />
+              </label>
+              <label>
+                Séries
+                <input
+                  min="1"
+                  type="number"
+                  value={exercise.sets}
+                  onChange={(event) => updateDraftExercise(index, { sets: Number(event.target.value) })}
+                />
+              </label>
+              <label>
+                Reps
+                <input
+                  value={exercise.reps}
+                  onChange={(event) => updateDraftExercise(index, { reps: event.target.value })}
+                />
+              </label>
+              <label>
+                Descanso
+                <input
+                  min="0"
+                  type="number"
+                  value={exercise.rest}
+                  onChange={(event) => updateDraftExercise(index, { rest: Number(event.target.value) })}
+                />
+              </label>
+              <label>
+                RPE
+                <input
+                  max="10"
+                  min="1"
+                  type="number"
+                  value={exercise.rpe}
+                  onChange={(event) => updateDraftExercise(index, { rpe: Number(event.target.value) })}
+                />
+              </label>
+              <label className="wide">
+                Instrução
+                <textarea
+                  value={exercise.instruction}
+                  onChange={(event) => updateDraftExercise(index, { instruction: event.target.value })}
+                />
+              </label>
+              <button className="danger-action" type="button" onClick={() => removeDraftExercise(index)}>
+                Excluir exercício
+              </button>
+            </article>
+          ))}
+        </div>
+
+        <div className="workout-actions">
+          <button
+            className="secondary-action"
+            type="button"
+            onClick={() =>
+              setDraft((current) => ({
+                ...current,
+                exercises: [...current.exercises, createDraftExercise()],
+              }))
+            }
+          >
+            <Plus aria-hidden="true" />
+            Adicionar exercício
+          </button>
+          <button className="secondary-action" type="button" onClick={() => setDraft(createDraftWorkout())}>
+            Novo treino
+          </button>
+          <button
+            className="primary-action"
+            disabled={savingAction === 'workout-create' || savingAction === `workout-${draft.id}`}
+            type="button"
+            onClick={() => void (isEditing ? onSaveWorkout(draft) : onCreateWorkout(draft))}
+          >
+            {savingAction === 'workout-create' || savingAction === `workout-${draft.id}` ? (
+              <Loader2 aria-hidden="true" />
+            ) : (
+              <Check aria-hidden="true" />
+            )}
+            {isEditing ? 'Salvar treino' : 'Criar treino'}
+          </button>
+        </div>
+      </Panel>
+
       <Panel title="Execução de Treino" action={restSeconds ? `${restSeconds}s descanso` : 'Pronto'}>
         <div className="workout-stack">
           {workouts.map((workout) => (
@@ -1921,6 +1955,20 @@ function Strength({
                     <Plus aria-hidden="true" />
                   )}
                   Registrar execução
+                </button>
+                <button className="secondary-action" type="button" onClick={() => setDraft(workout)}>
+                  Editar treino
+                </button>
+                <button className="secondary-action" type="button" onClick={() => duplicateWorkout(workout)}>
+                  Duplicar
+                </button>
+                <button
+                  className="danger-action"
+                  disabled={savingAction === `workout-delete-${workout.id}`}
+                  type="button"
+                  onClick={() => void onDeleteWorkout(workout.id)}
+                >
+                  Excluir treino
                 </button>
               </div>
             </article>
