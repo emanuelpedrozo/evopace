@@ -7,6 +7,7 @@ Sistema web para planejamento, execução e acompanhamento de musculação e cor
 - Dashboard com volume de musculação, km semanais, pace, recovery score e aderência.
 - Login e cadastro conectados à API com JWT salvo no navegador.
 - Dashboard conectado ao endpoint real `/api/dashboard`.
+- Perfil, corridas, avaliações, treinos e execução de treino conectados aos endpoints reais da API.
 - Cadastro de perfil com objetivo, nível, restrições, experiência, prontidão, sono, fadiga e dor.
 - Avaliação física com peso, gordura, massa muscular, medidas, VO2, FC de repouso, linha do tempo e comparação visual.
 - Musculação com divisões de treino, biblioteca de exercícios, registro de carga, conclusão de séries, RPE, descanso e sugestão de progressão.
@@ -39,11 +40,12 @@ Sistema web para planejamento, execução e acompanhamento de musculação e cor
 
 ## Próxima evolução técnica
 
-1. Conectar CRUDs de treinos, corridas e avaliações aos formulários internos.
-2. Adicionar refresh token, recuperação de senha e confirmação de email.
-3. Criar gráficos reais e upload seguro de fotos.
-4. Evoluir regra de progressão automática com histórico de execução.
-5. Implementar integração com Garmin, Strava, Coros, Polar, Apple Health e Google Fit.
+1. Separar `src/App.tsx` em `src/api`, `src/pages`, `src/components` e `src/types`.
+2. Adicionar edição completa e criação de novos treinos pela interface.
+3. Adicionar refresh token, recuperação de senha e confirmação de email.
+4. Criar gráficos reais e upload seguro de fotos.
+5. Evoluir regra de progressão automática com histórico de execução.
+6. Implementar integração com Garmin, Strava, Coros, Polar, Apple Health e Google Fit.
 
 ## Comandos
 

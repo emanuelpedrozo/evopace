@@ -197,6 +197,19 @@ type ApiRun = {
   effort: number
 }
 
+type ApiAssessment = {
+  id: string
+  date: string
+  weight: number
+  bodyFat: number
+  muscleMass: number
+  waist: number
+  chest: number
+  thigh: number
+  vo2: number
+  restingHr: number
+}
+
 type DashboardResponse = {
   metrics: {
     workoutVolume: number
@@ -543,6 +556,21 @@ function toRun(run: ApiRun): RunEntry {
   }
 }
 
+function toAssessment(assessment: ApiAssessment): Assessment {
+  return {
+    id: assessment.id,
+    date: assessment.date.slice(0, 10),
+    weight: assessment.weight,
+    bodyFat: assessment.bodyFat,
+    muscleMass: assessment.muscleMass,
+    waist: assessment.waist,
+    chest: assessment.chest,
+    thigh: assessment.thigh,
+    vo2: assessment.vo2,
+    restingHr: assessment.restingHr,
+  }
+}
+
 function toMetrics(response: DashboardResponse): Metrics {
   return {
     workoutVolume: response.metrics.workoutVolume,
@@ -555,6 +583,33 @@ function toMetrics(response: DashboardResponse): Metrics {
     vo2: response.metrics.vo2 ?? 0,
     restingHr: response.metrics.restingHr ?? 0,
   }
+}
+
+function toWorkoutPayload(workout: WorkoutDay) {
+  return {
+    name: workout.name,
+    split: workout.split,
+    focus: workout.focus,
+    exercises: workout.exercises.map((exercise, index) => ({
+      name: exercise.name,
+      video: exercise.video,
+      instruction: exercise.instruction,
+      targetMuscle: exercise.target,
+      secondaryMuscles: exercise.secondary,
+      equipment: exercise.equipment,
+      difficulty: exercise.difficulty,
+      sets: exercise.sets,
+      reps: exercise.reps,
+      load: exercise.load,
+      restSeconds: exercise.rest,
+      rpe: exercise.rpe,
+      order: index,
+    })),
+  }
+}
+
+function parseReps(reps: string) {
+  return Number.parseInt(reps, 10) || 0
 }
 
 function getWorkoutVolume(workouts: WorkoutDay[]) {
@@ -818,6 +873,8 @@ function App() {
     authToken ? 'loading' : 'anonymous',
   )
   const [authError, setAuthError] = useState('')
+  const [actionMessage, setActionMessage] = useState('')
+  const [savingAction, setSavingAction] = useState('')
   const [apiMetrics, setApiMetrics] = useState<Metrics | null>(null)
   const [profile, setProfile] = useState<Profile>(initialProfile)
   const [workouts, setWorkouts] = useState<WorkoutDay[]>(initialWorkouts)
@@ -847,17 +904,34 @@ function App() {
   })
 
   async function fetchAuthenticatedData(token: string) {
-    const [meResponse, dashboardResponse] = await Promise.all([
+    const [meResponse, dashboardResponse, runsResponse, assessmentsResponse, workoutsResponse] = await Promise.all([
       apiRequest<{ user: ApiUser }>('/me', { token }),
       apiRequest<DashboardResponse>('/dashboard', { token }),
+      apiRequest<{ runs: ApiRun[] }>('/runs', { token }),
+      apiRequest<{ assessments: ApiAssessment[] }>('/assessments', { token }),
+      apiRequest<{ workouts: ApiWorkout[] }>('/workouts', { token }),
     ])
 
     return {
       profile: toProfile(meResponse.user),
       metrics: toMetrics(dashboardResponse),
-      runs: dashboardResponse.recentRuns.map(toRun),
-      workouts: dashboardResponse.workouts.map(toWorkout),
+      runs: runsResponse.runs.map(toRun),
+      assessments: assessmentsResponse.assessments.map(toAssessment),
+      workouts: workoutsResponse.workouts.map(toWorkout),
     }
+  }
+
+  async function refreshAuthenticatedData(token = authToken) {
+    if (!token) {
+      return
+    }
+
+    const data = await fetchAuthenticatedData(token)
+    setProfile(data.profile)
+    setApiMetrics(data.metrics)
+    setRuns(data.runs)
+    setAssessments(data.assessments)
+    setWorkouts(data.workouts)
   }
 
   useEffect(() => {
@@ -878,10 +952,8 @@ function App() {
         setProfile(data.profile)
         setApiMetrics(data.metrics)
         setRuns(data.runs)
-
-        if (data.workouts.length) {
-          setWorkouts(data.workouts)
-        }
+        setAssessments(data.assessments)
+        setWorkouts(data.workouts)
 
         setAuthStatus('authenticated')
       } catch (error: unknown) {
@@ -962,27 +1034,199 @@ function App() {
     )
   }
 
-  function addRun() {
-    const paceSeconds = (runForm.time * 60) / runForm.distance
-    const newRun: RunEntry = {
-      id: `run-${Date.now()}`,
-      date: new Date().toISOString().slice(0, 10),
-      pace: secondsToPace(paceSeconds),
-      ...runForm,
-    }
+  async function saveProfile() {
+    if (!authToken) return
 
-    setRuns((current) => [newRun, ...current].slice(0, 8))
+    setSavingAction('profile')
+    setActionMessage('')
+
+    try {
+      const response = await apiRequest<{ user: ApiUser }>('/profile', {
+        method: 'PATCH',
+        token: authToken,
+        body: JSON.stringify({
+          name: profile.name,
+          age: profile.age,
+          weight: profile.weight,
+          height: profile.height,
+          sex: profile.sex,
+          goal: profile.goal,
+          level: profile.level,
+          role: profile.role,
+          restrictions: profile.restrictions,
+          experience: profile.experience,
+          sleep: profile.sleep,
+          fatigue: profile.fatigue,
+          soreness: profile.soreness,
+        }),
+      })
+
+      setProfile(toProfile(response.user))
+      await refreshAuthenticatedData()
+      setActionMessage('Perfil salvo no banco.')
+    } catch (error) {
+      setActionMessage(error instanceof Error ? error.message : 'Falha ao salvar perfil.')
+    } finally {
+      setSavingAction('')
+    }
   }
 
-  function addAssessment() {
-    setAssessments((current) => [
-      ...current,
-      {
-        id: `assess-${Date.now()}`,
-        date: new Date().toISOString().slice(0, 10),
-        ...assessmentForm,
-      },
-    ])
+  async function addRun() {
+    if (!authToken) return
+
+    setSavingAction('run')
+    setActionMessage('')
+
+    try {
+      await apiRequest<{ run: ApiRun }>('/runs', {
+        method: 'POST',
+        token: authToken,
+        body: JSON.stringify({
+          type: runForm.type,
+          distance: runForm.distance,
+          timeMinutes: runForm.time,
+          elevation: runForm.elevation,
+          avgHr: runForm.avgHr,
+          maxHr: runForm.maxHr,
+          cadence: runForm.cadence,
+          effort: runForm.effort,
+        }),
+      })
+      await refreshAuthenticatedData()
+      setActionMessage('Corrida registrada no banco.')
+    } catch (error) {
+      setActionMessage(error instanceof Error ? error.message : 'Falha ao salvar corrida.')
+    } finally {
+      setSavingAction('')
+    }
+  }
+
+  async function deleteRun(id: string) {
+    if (!authToken) return
+
+    setSavingAction(`run-${id}`)
+    setActionMessage('')
+
+    try {
+      await apiRequest<null>(`/runs/${id}`, { method: 'DELETE', token: authToken })
+      await refreshAuthenticatedData()
+      setActionMessage('Corrida removida.')
+    } catch (error) {
+      setActionMessage(error instanceof Error ? error.message : 'Falha ao remover corrida.')
+    } finally {
+      setSavingAction('')
+    }
+  }
+
+  async function addAssessment() {
+    if (!authToken) return
+
+    setSavingAction('assessment')
+    setActionMessage('')
+
+    try {
+      await apiRequest<{ assessment: ApiAssessment }>('/assessments', {
+        method: 'POST',
+        token: authToken,
+        body: JSON.stringify(assessmentForm),
+      })
+      await refreshAuthenticatedData()
+      setActionMessage('Avaliação registrada no banco.')
+    } catch (error) {
+      setActionMessage(error instanceof Error ? error.message : 'Falha ao salvar avaliação.')
+    } finally {
+      setSavingAction('')
+    }
+  }
+
+  async function deleteAssessment(id: string) {
+    if (!authToken) return
+
+    setSavingAction(`assessment-${id}`)
+    setActionMessage('')
+
+    try {
+      await apiRequest<null>(`/assessments/${id}`, { method: 'DELETE', token: authToken })
+      await refreshAuthenticatedData()
+      setActionMessage('Avaliação removida.')
+    } catch (error) {
+      setActionMessage(error instanceof Error ? error.message : 'Falha ao remover avaliação.')
+    } finally {
+      setSavingAction('')
+    }
+  }
+
+  async function saveWorkout(workout: WorkoutDay) {
+    if (!authToken) return
+
+    setSavingAction(`workout-${workout.id}`)
+    setActionMessage('')
+
+    try {
+      await apiRequest<{ workout: ApiWorkout }>(`/workouts/${workout.id}`, {
+        method: 'PUT',
+        token: authToken,
+        body: JSON.stringify(toWorkoutPayload(workout)),
+      })
+      await refreshAuthenticatedData()
+      setActionMessage('Treino salvo no banco.')
+    } catch (error) {
+      setActionMessage(error instanceof Error ? error.message : 'Falha ao salvar treino.')
+    } finally {
+      setSavingAction('')
+    }
+  }
+
+  async function saveWorkoutExecution(workout: WorkoutDay) {
+    if (!authToken) return
+
+    const sets = workout.exercises.flatMap((exercise) =>
+      Array.from({ length: exercise.sets }, (_, index) => {
+        const setKey = `${workout.id}-${exercise.id}-${index}`
+
+        if (!completedSets[setKey]) {
+          return null
+        }
+
+        return {
+          exerciseId: exercise.id,
+          setNumber: index + 1,
+          reps: parseReps(exercise.reps),
+          load: exercise.load,
+          rpe: exercise.rpe,
+          failed: false,
+          completed: true,
+        }
+      }).filter((set) => set !== null),
+    )
+
+    if (!sets.length) {
+      setActionMessage('Marque pelo menos uma série concluída para registrar a execução.')
+      return
+    }
+
+    setSavingAction(`execution-${workout.id}`)
+    setActionMessage('')
+
+    try {
+      await apiRequest(`/workouts/${workout.id}/executions`, {
+        method: 'POST',
+        token: authToken,
+        body: JSON.stringify({
+          finishedAt: new Date().toISOString(),
+          sets,
+        }),
+      })
+      setCompletedSets((current) =>
+        Object.fromEntries(Object.entries(current).filter(([key]) => !key.startsWith(`${workout.id}-`))),
+      )
+      await refreshAuthenticatedData()
+      setActionMessage('Execução de treino registrada.')
+    } catch (error) {
+      setActionMessage(error instanceof Error ? error.message : 'Falha ao registrar execução.')
+    } finally {
+      setSavingAction('')
+    }
   }
 
   async function handleLogin(email: string, password: string) {
@@ -1099,6 +1343,8 @@ function App() {
           </div>
         </header>
 
+        {actionMessage ? <div className="action-message">{actionMessage}</div> : null}
+
         {activeModule === 'dashboard' ? (
           <Dashboard
             completion={completion}
@@ -1111,14 +1357,22 @@ function App() {
         ) : null}
 
         {activeModule === 'cadastro' ? (
-          <Registration profile={profile} setProfile={setProfile} />
+          <Registration
+            isSaving={savingAction === 'profile'}
+            onSave={saveProfile}
+            profile={profile}
+            setProfile={setProfile}
+          />
         ) : null}
 
         {activeModule === 'avaliacao' ? (
           <Assessments
             assessmentForm={assessmentForm}
             assessments={assessments}
+            isSaving={savingAction === 'assessment'}
             onAdd={addAssessment}
+            onDelete={deleteAssessment}
+            savingAction={savingAction}
             setAssessmentForm={setAssessmentForm}
           />
         ) : null}
@@ -1130,6 +1384,9 @@ function App() {
             restSeconds={restSeconds}
             setCompletedSets={setCompletedSets}
             setRestSeconds={setRestSeconds}
+            onSaveExecution={saveWorkoutExecution}
+            onSaveWorkout={saveWorkout}
+            savingAction={savingAction}
             updateWorkoutLoad={updateWorkoutLoad}
             workouts={workouts}
           />
@@ -1138,9 +1395,12 @@ function App() {
         {activeModule === 'corrida' ? (
           <Running
             metrics={metrics}
+            isSaving={savingAction === 'run'}
             onAdd={addRun}
+            onDelete={deleteRun}
             runForm={runForm}
             runs={runs}
+            savingAction={savingAction}
             setRunForm={setRunForm}
           />
         ) : null}
@@ -1286,9 +1546,13 @@ function Dashboard({
 }
 
 function Registration({
+  isSaving,
+  onSave,
   profile,
   setProfile,
 }: {
+  isSaving: boolean
+  onSave: () => Promise<void>
   profile: Profile
   setProfile: React.Dispatch<React.SetStateAction<Profile>>
 }) {
@@ -1398,6 +1662,10 @@ function Registration({
             />
           </label>
         </form>
+        <button className="primary-action" disabled={isSaving} type="button" onClick={onSave}>
+          {isSaving ? <Loader2 aria-hidden="true" /> : <Check aria-hidden="true" />}
+          Salvar perfil
+        </button>
       </Panel>
 
       <Panel title="Prontidão Diária">
@@ -1442,7 +1710,10 @@ function Registration({
 function Assessments({
   assessmentForm,
   assessments,
+  isSaving,
   onAdd,
+  onDelete,
+  savingAction,
   setAssessmentForm,
 }: {
   assessmentForm: {
@@ -1456,7 +1727,10 @@ function Assessments({
     restingHr: number
   }
   assessments: Assessment[]
-  onAdd: () => void
+  isSaving: boolean
+  onAdd: () => Promise<void>
+  onDelete: (id: string) => Promise<void>
+  savingAction: string
   setAssessmentForm: React.Dispatch<React.SetStateAction<typeof assessmentForm>>
 }) {
   return (
@@ -1492,8 +1766,8 @@ function Assessments({
             </label>
           ))}
         </form>
-        <button className="primary-action" type="button" onClick={onAdd}>
-          <Plus aria-hidden="true" />
+        <button className="primary-action" disabled={isSaving} type="button" onClick={onAdd}>
+          {isSaving ? <Loader2 aria-hidden="true" /> : <Plus aria-hidden="true" />}
           Registrar avaliação
         </button>
       </Panel>
@@ -1507,6 +1781,14 @@ function Assessments({
               <small>
                 {assessment.bodyFat}% gordura · VO2 {assessment.vo2} · FC {assessment.restingHr}
               </small>
+              <button
+                className="danger-action"
+                disabled={savingAction === `assessment-${assessment.id}`}
+                type="button"
+                onClick={() => void onDelete(assessment.id)}
+              >
+                Excluir
+              </button>
               <div className="mini-bars">
                 <i style={{ height: `${assessment.muscleMass * 1.6}px` }} />
                 <i style={{ height: `${assessment.vo2 * 1.5}px` }} />
@@ -1533,16 +1815,22 @@ function Assessments({
 
 function Strength({
   completedSets,
+  onSaveExecution,
+  onSaveWorkout,
   profile,
   restSeconds,
+  savingAction,
   setCompletedSets,
   setRestSeconds,
   updateWorkoutLoad,
   workouts,
 }: {
   completedSets: Record<string, boolean>
+  onSaveExecution: (workout: WorkoutDay) => Promise<void>
+  onSaveWorkout: (workout: WorkoutDay) => Promise<void>
   profile: Profile
   restSeconds: number
+  savingAction: string
   setCompletedSets: React.Dispatch<React.SetStateAction<Record<string, boolean>>>
   setRestSeconds: React.Dispatch<React.SetStateAction<number>>
   updateWorkoutLoad: (workoutId: string, exerciseId: string, load: number) => void
@@ -1606,6 +1894,35 @@ function Strength({
                   </div>
                 </div>
               ))}
+
+              <div className="workout-actions">
+                <button
+                  className="secondary-action"
+                  disabled={savingAction === `workout-${workout.id}`}
+                  type="button"
+                  onClick={() => void onSaveWorkout(workout)}
+                >
+                  {savingAction === `workout-${workout.id}` ? (
+                    <Loader2 aria-hidden="true" />
+                  ) : (
+                    <Check aria-hidden="true" />
+                  )}
+                  Salvar cargas
+                </button>
+                <button
+                  className="primary-action"
+                  disabled={savingAction === `execution-${workout.id}`}
+                  type="button"
+                  onClick={() => void onSaveExecution(workout)}
+                >
+                  {savingAction === `execution-${workout.id}` ? (
+                    <Loader2 aria-hidden="true" />
+                  ) : (
+                    <Plus aria-hidden="true" />
+                  )}
+                  Registrar execução
+                </button>
+              </div>
             </article>
           ))}
         </div>
@@ -1630,14 +1947,19 @@ function Strength({
 }
 
 function Running({
+  isSaving,
   metrics,
   onAdd,
+  onDelete,
   runForm,
   runs,
+  savingAction,
   setRunForm,
 }: {
+  isSaving: boolean
   metrics: Metrics
-  onAdd: () => void
+  onAdd: () => Promise<void>
+  onDelete: (id: string) => Promise<void>
   runForm: {
     type: RunType
     distance: number
@@ -1649,6 +1971,7 @@ function Running({
     effort: number
   }
   runs: RunEntry[]
+  savingAction: string
   setRunForm: React.Dispatch<React.SetStateAction<typeof runForm>>
 }) {
   return (
@@ -1702,8 +2025,8 @@ function Running({
             </label>
           ))}
         </form>
-        <button className="primary-action" type="button" onClick={onAdd}>
-          <Plus aria-hidden="true" />
+        <button className="primary-action" disabled={isSaving} type="button" onClick={onAdd}>
+          {isSaving ? <Loader2 aria-hidden="true" /> : <Plus aria-hidden="true" />}
           Salvar corrida
         </button>
       </Panel>
@@ -1720,6 +2043,14 @@ function Running({
               <small>{run.pace}/km</small>
               <small>{run.avgHr}-{run.maxHr} bpm</small>
               <div className="zone-pill">Z{Math.min(5, Math.max(1, Math.round(run.avgHr / 35)))}</div>
+              <button
+                className="danger-action"
+                disabled={savingAction === `run-${run.id}`}
+                type="button"
+                onClick={() => void onDelete(run.id)}
+              >
+                Excluir
+              </button>
             </article>
           ))}
         </div>
