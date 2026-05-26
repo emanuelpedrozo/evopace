@@ -111,6 +111,23 @@ jobs:
             docker compose -f docker-compose.prod.yml --env-file .env.production run --rm api npx prisma migrate deploy
             docker compose -f docker-compose.prod.yml --env-file .env.production up -d api
 
+            echo "Waiting for EvoPace API health check..."
+            for attempt in $(seq 1 30); do
+              if curl -fsS "http://127.0.0.1:$API_PORT/api/health"; then
+                echo "EvoPace API is healthy."
+                break
+              fi
+
+              if [ "$attempt" = "30" ]; then
+                echo "EvoPace API did not become healthy."
+                docker compose -f docker-compose.prod.yml --env-file .env.production ps
+                docker compose -f docker-compose.prod.yml --env-file .env.production logs --tail=120 api
+                exit 1
+              fi
+
+              sleep 2
+            done
+
             sudo cp "$APP_DIR/deploy/nginx/evopace.locations.conf" /etc/nginx/snippets/evopace.locations.conf
 
             if sudo nginx -T 2>/dev/null | grep -q "evopace.locations.conf"; then
@@ -121,5 +138,3 @@ jobs:
               echo "Add this inside the active server { } block and reload nginx:"
               echo "include /etc/nginx/snippets/evopace.locations.conf;"
             fi
-
-            curl -fsS "http://127.0.0.1:$API_PORT/api/health"
