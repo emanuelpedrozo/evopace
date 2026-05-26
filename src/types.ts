@@ -137,6 +137,9 @@ export type ApiUser = {
 
 export type ApiWorkout = {
   id: string
+  trainingPlanId?: string | null
+  planDayCode?: string | null
+  planDayName?: string | null
   name: string
   split: SplitType
   focus: string
@@ -155,6 +158,17 @@ export type ApiWorkout = {
     restSeconds: number
     rpe: number
   }[]
+}
+
+export type ApiWorkoutPlan = {
+  id: string
+  name: string
+  split: SplitType
+  goal: string
+  startDate: string
+  endDate: string | null
+  status: string
+  workouts: ApiWorkout[]
 }
 
 export type ApiRun = {

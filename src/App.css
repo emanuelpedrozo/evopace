@@ -807,7 +807,7 @@ input[type='range'] {
 
 .builder-grid {
   display: grid;
-  grid-template-columns: 1.2fr 180px 1fr;
+  grid-template-columns: minmax(220px, 1.2fr) 160px minmax(180px, 1fr) 150px 150px;
   gap: 14px;
   margin-bottom: 14px;
 }
@@ -845,6 +845,81 @@ input[type='range'] {
 .plan-day-editor {
   display: grid;
   gap: 12px;
+}
+
+.plan-history-list {
+  display: grid;
+  gap: 12px;
+}
+
+.plan-history-card {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.9fr) minmax(260px, 1.2fr);
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+}
+
+.plan-history-card strong,
+.plan-history-card small {
+  display: block;
+}
+
+.plan-history-card strong {
+  margin-top: 6px;
+  color: var(--text-strong);
+  font-size: var(--text-lg);
+}
+
+.plan-history-card small {
+  margin-top: 4px;
+  color: var(--text-muted);
+}
+
+.plan-status {
+  display: inline-flex;
+  padding: 4px 8px;
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.plan-status.active {
+  color: var(--good);
+  background: var(--green-50);
+}
+
+.plan-status.finished {
+  color: var(--text-muted);
+  background: var(--gray-100);
+}
+
+[data-theme='dark'] .plan-status.active {
+  background: rgba(38, 166, 91, 0.14);
+}
+
+[data-theme='dark'] .plan-status.finished {
+  background: rgba(150, 160, 180, 0.12);
+}
+
+.plan-history-days {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.plan-history-days span {
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  background: var(--surface);
+  font-size: var(--text-sm);
 }
 
 .exercise-editor-list {
@@ -2099,6 +2174,7 @@ input[type='range'] {
   .builder-grid,
   .builder-grid.compact,
   .exercise-editor,
+  .plan-history-card,
   .chart-grid,
   .library-grid,
   .cycle-grid,
@@ -2128,6 +2204,10 @@ input[type='range'] {
   .history-set-list {
     justify-content: flex-start;
     max-width: none;
+  }
+
+  .plan-history-days {
+    justify-content: flex-start;
   }
 
   .run-list article {

@@ -83,6 +83,27 @@ export const workoutUpdateSchema = workoutCreateSchema.partial().extend({
   exercises: z.array(workoutExerciseSchema).min(1).optional(),
 })
 
+export const workoutPlanDaySchema = z.object({
+  code: z.string().min(1).max(20),
+  name: z.string().min(2),
+  focus: z.string().min(2),
+  exercises: z.array(workoutExerciseSchema).min(1),
+})
+
+export const workoutPlanCreateSchema = z
+  .object({
+    name: z.string().min(2),
+    split: z.enum(splitTypes),
+    goal: z.string().min(2),
+    startDate: z.coerce.date(),
+    endDate: z.coerce.date().optional(),
+    days: z.array(workoutPlanDaySchema).min(1),
+  })
+  .refine((input) => !input.endDate || input.endDate >= input.startDate, {
+    message: 'END_DATE_BEFORE_START_DATE',
+    path: ['endDate'],
+  })
+
 export const setExecutionSchema = z.object({
   exerciseId: z.string().uuid(),
   setNumber: z.number().int().min(1),

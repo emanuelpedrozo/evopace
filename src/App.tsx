@@ -59,6 +59,7 @@ import type {
   ApiUser,
   ApiWorkout,
   ApiWorkoutExecution,
+  ApiWorkoutPlan,
   Assessment,
   DashboardResponse,
   Exercise,
@@ -476,6 +477,8 @@ type WorkoutPlanDraft = {
   name: string
   split: SplitType
   goal: string
+  startDate: string
+  endDate: string
   days: WorkoutPlanDayDraft[]
 }
 
@@ -517,12 +520,17 @@ function getDefaultDayFocus(code: string) {
 
 function createDraftPlan(split: SplitType = 'ABC'): WorkoutPlanDraft {
   const timestamp = Date.now()
+  const startDate = new Date().toISOString().slice(0, 10)
+  const endDate = new Date()
+  endDate.setDate(endDate.getDate() + 84)
 
   return {
     id: `draft-plan-${timestamp}`,
     name: split === 'ABC' ? 'Ficha ABC - Hipertrofia' : `Ficha ${split}`,
     split,
     goal: 'hipertrofia',
+    startDate,
+    endDate: endDate.toISOString().slice(0, 10),
     days: getSplitDayCodes(split).map((code, index) => ({
       code,
       name: `Treino ${code}`,
@@ -916,6 +924,7 @@ function App() {
   const [apiMetrics, setApiMetrics] = useState<Metrics | null>(null)
   const [profile, setProfile] = useState<Profile>(initialProfile)
   const [workouts, setWorkouts] = useState<WorkoutDay[]>(initialWorkouts)
+  const [workoutPlans, setWorkoutPlans] = useState<ApiWorkoutPlan[]>([])
   const [workoutExecutions, setWorkoutExecutions] = useState<ApiWorkoutExecution[]>([])
   const [runs, setRuns] = useState<RunEntry[]>(initialRuns)
   const [assessments, setAssessments] = useState<Assessment[]>(initialAssessments)
@@ -964,12 +973,21 @@ function App() {
   }, [])
 
   async function fetchAuthenticatedData(token: string) {
-    const [meResponse, dashboardResponse, runsResponse, assessmentsResponse, workoutsResponse, workoutExecutionsResponse] = await Promise.all([
+    const [
+      meResponse,
+      dashboardResponse,
+      runsResponse,
+      assessmentsResponse,
+      workoutsResponse,
+      workoutPlansResponse,
+      workoutExecutionsResponse,
+    ] = await Promise.all([
       apiRequest<{ user: ApiUser }>('/me', { token }),
       apiRequest<DashboardResponse>('/dashboard', { token }),
       apiRequest<{ runs: ApiRun[] }>('/runs', { token }),
       apiRequest<{ assessments: ApiAssessment[] }>('/assessments', { token }),
       apiRequest<{ workouts: ApiWorkout[] }>('/workouts', { token }),
+      apiRequest<{ plans: ApiWorkoutPlan[] }>('/workout-plans', { token }),
       apiRequest<{ executions: ApiWorkoutExecution[] }>('/workout-executions', { token }),
     ])
 
@@ -979,6 +997,7 @@ function App() {
       runs: runsResponse.runs.map(toRun),
       assessments: assessmentsResponse.assessments.map(toAssessment),
       workouts: workoutsResponse.workouts.map(toWorkout),
+      workoutPlans: workoutPlansResponse.plans,
       workoutExecutions: workoutExecutionsResponse.executions,
     }
   }
@@ -994,6 +1013,7 @@ function App() {
     setRuns(data.runs)
     setAssessments(data.assessments)
     setWorkouts(data.workouts)
+    setWorkoutPlans(data.workoutPlans)
     setWorkoutExecutions(data.workoutExecutions)
   }
 
@@ -1017,6 +1037,7 @@ function App() {
         setRuns(data.runs)
         setAssessments(data.assessments)
         setWorkouts(data.workouts)
+        setWorkoutPlans(data.workoutPlans)
         setWorkoutExecutions(data.workoutExecutions)
 
         setAuthStatus('authenticated')
@@ -1253,15 +1274,23 @@ function App() {
     setSavingAction('workout-plan-create')
 
     try {
-      const workoutsToCreate = plan.days.map((day) => planDayToWorkout(plan, day))
-
-      for (const workout of workoutsToCreate) {
-        await apiRequest<{ workout: ApiWorkout }>('/workouts', {
-          method: 'POST',
-          token: authToken,
-          body: JSON.stringify(toWorkoutPayload(workout)),
-        })
-      }
+      await apiRequest<{ plan: ApiWorkoutPlan }>('/workout-plans', {
+        method: 'POST',
+        token: authToken,
+        body: JSON.stringify({
+          name: plan.name,
+          split: plan.split,
+          goal: plan.goal,
+          startDate: plan.startDate,
+          endDate: plan.endDate || undefined,
+          days: plan.days.map((day) => ({
+            code: day.code,
+            name: day.name,
+            focus: day.focus,
+            exercises: toWorkoutPayload(planDayToWorkout(plan, day)).exercises,
+          })),
+        }),
+      })
 
       await refreshAuthenticatedData()
       toast.success('Ficha cadastrada com os treinos da divisão.')
@@ -1518,6 +1547,7 @@ function App() {
             savingAction={savingAction}
             updateWorkoutLoad={updateWorkoutLoad}
             workoutExecutions={workoutExecutions}
+            workoutPlans={workoutPlans}
             workouts={workouts}
           />
         ) : null}
@@ -2133,6 +2163,7 @@ function Strength({
   setRestTotal,
   updateWorkoutLoad,
   workoutExecutions,
+  workoutPlans,
   workouts,
 }: {
   authToken: string
@@ -2152,6 +2183,7 @@ function Strength({
   setRestTotal: React.Dispatch<React.SetStateAction<number>>
   updateWorkoutLoad: (workoutId: string, exerciseId: string, load: number) => void
   workoutExecutions: ApiWorkoutExecution[]
+  workoutPlans: ApiWorkoutPlan[]
   workouts: WorkoutDay[]
 }) {
   const [planDraft, setPlanDraft] = useState<WorkoutPlanDraft>(() => createDraftPlan('ABC'))
@@ -2259,6 +2291,8 @@ function Strength({
       name: workout.name,
       split: workout.split,
       goal: workout.focus,
+      startDate: new Date().toISOString().slice(0, 10),
+      endDate: '',
       days: [
         {
           code: 'A',
@@ -2331,6 +2365,23 @@ function Strength({
               placeholder=" "
               value={planDraft.goal}
               onChange={(event) => setPlanDraft((current) => ({ ...current, goal: event.target.value }))}
+            />
+          </label>
+          <label>
+            Início
+            <input
+              required
+              type="date"
+              value={planDraft.startDate}
+              onChange={(event) => setPlanDraft((current) => ({ ...current, startDate: event.target.value }))}
+            />
+          </label>
+          <label>
+            Fim
+            <input
+              type="date"
+              value={planDraft.endDate}
+              onChange={(event) => setPlanDraft((current) => ({ ...current, endDate: event.target.value }))}
             />
           </label>
         </div>
@@ -2508,6 +2559,45 @@ function Strength({
             Cadastrar ficha
           </button>
         </div>
+      </Panel>
+
+      <Panel title="Histórico de Fichas" action={`${workoutPlans.length} cadastradas`}>
+        {workoutPlans.length > 0 ? (
+          <div className="plan-history-list">
+            {workoutPlans.map((plan) => {
+              const start = new Date(plan.startDate).toLocaleDateString('pt-BR')
+              const end = plan.endDate ? new Date(plan.endDate).toLocaleDateString('pt-BR') : 'sem fim'
+              const isActive = !plan.endDate || new Date(plan.endDate) >= new Date()
+
+              return (
+                <article className="plan-history-card" key={plan.id}>
+                  <div>
+                    <span className={isActive ? 'plan-status active' : 'plan-status finished'}>
+                      {isActive ? 'Ativa' : 'Encerrada'}
+                    </span>
+                    <strong>{plan.name}</strong>
+                    <small>
+                      {plan.split} · {plan.goal} · {start} até {end}
+                    </small>
+                  </div>
+                  <div className="plan-history-days">
+                    {plan.workouts.map((workout) => (
+                      <span key={workout.id}>
+                        {workout.planDayName ?? workout.name}: {workout.exercises.length} exercícios
+                      </span>
+                    ))}
+                  </div>
+                </article>
+              )
+            })}
+          </div>
+        ) : (
+          <EmptyState
+            icon={Dumbbell}
+            title="Nenhuma ficha cadastrada"
+            description="Cadastre sua primeira ficha com datas de início e fim para manter o histórico de ciclos."
+          />
+        )}
       </Panel>
 
       <Panel title="Calendário de Musculação" action={formatMonthLabel(selectedCalendarDay)}>

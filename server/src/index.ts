@@ -16,6 +16,7 @@ import {
   runUpdateSchema,
   workoutCreateSchema,
   workoutExecutionSchema,
+  workoutPlanCreateSchema,
   workoutUpdateSchema,
 } from './schemas.js'
 
@@ -171,6 +172,68 @@ app.get(
     })
 
     response.json({ executions })
+  }),
+)
+
+app.get(
+  '/api/workout-plans',
+  asyncHandler(async (request, response) => {
+    const plans = await prisma.workoutPlan.findMany({
+      where: { userId: currentUser(request).id },
+      include: {
+        workouts: {
+          include: { exercises: { orderBy: { order: 'asc' } } },
+          orderBy: { planDayCode: 'asc' },
+        },
+      },
+      orderBy: { startDate: 'desc' },
+    })
+
+    response.json({ plans })
+  }),
+)
+
+app.post(
+  '/api/workout-plans',
+  asyncHandler(async (request, response) => {
+    const input = workoutPlanCreateSchema.parse(request.body)
+
+    const plan = await prisma.workoutPlan.create({
+      data: {
+        userId: currentUser(request).id,
+        name: input.name,
+        split: input.split,
+        goal: input.goal,
+        startDate: input.startDate,
+        endDate: input.endDate,
+        status: input.endDate && input.endDate < new Date() ? 'finished' : 'active',
+        workouts: {
+          create: input.days.map((day) => ({
+            userId: currentUser(request).id,
+            name: `${input.name} · ${day.name}`,
+            split: input.split,
+            focus: day.focus,
+            planDayCode: day.code,
+            planDayName: day.name,
+            notes: `Ficha: ${input.name}`,
+            exercises: {
+              create: day.exercises.map((exercise, index) => ({
+                ...exercise,
+                order: exercise.order ?? index,
+              })),
+            },
+          })),
+        },
+      },
+      include: {
+        workouts: {
+          include: { exercises: { orderBy: { order: 'asc' } } },
+          orderBy: { planDayCode: 'asc' },
+        },
+      },
+    })
+
+    response.status(201).json({ plan })
   }),
 )
 

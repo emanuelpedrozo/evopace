@@ -29,6 +29,7 @@ model User {
 
   assessments       BodyAssessment[]
   runs              Run[]
+  workoutPlans      WorkoutPlan[]
   trainingCycles    TrainingCycle[]
   workoutExecutions WorkoutExecution[]
   workouts          Workout[]
@@ -37,21 +38,45 @@ model User {
 }
 
 model Workout {
+  id             String   @id @default(uuid())
+  userId         String
+  trainingPlanId String?
+  planDayCode    String?
+  planDayName    String?
+  name           String
+  split          String
+  focus          String
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  exercises    WorkoutExercise[]
+  executions   WorkoutExecution[]
+  trainingPlan WorkoutPlan?      @relation(fields: [trainingPlanId], references: [id], onDelete: SetNull)
+  user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([trainingPlanId])
+  @@map("workouts")
+}
+
+model WorkoutPlan {
   id        String   @id @default(uuid())
   userId    String
   name      String
   split     String
-  focus     String
-  notes     String?
+  goal      String
+  startDate DateTime
+  endDate   DateTime?
+  status    String   @default("active")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  exercises  WorkoutExercise[]
-  executions WorkoutExecution[]
-  user       User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workouts Workout[]
 
   @@index([userId])
-  @@map("workouts")
+  @@map("workout_plans")
 }
 
 model WorkoutExercise {
