@@ -9,6 +9,8 @@ Sistema web para planejamento, execução e acompanhamento de musculação e cor
 - Dashboard conectado ao endpoint real `/api/dashboard`.
 - Perfil, corridas, avaliações, treinos e execução de treino conectados aos endpoints reais da API.
 - Cliente HTTP extraído para `src/api/client.ts` e contratos de dados extraídos para `src/types.ts`.
+- Componentes compartilhados extraídos para `src/components`.
+- Gráficos reais no dashboard com `recharts`.
 - Cadastro de perfil com objetivo, nível, restrições, experiência, prontidão, sono, fadiga e dor.
 - Avaliação física com peso, gordura, massa muscular, medidas, VO2, FC de repouso, linha do tempo e comparação visual.
 - Musculação com criação, edição, duplicação, exclusão, biblioteca de exercícios, registro de carga, conclusão de séries, RPE, descanso e sugestão de progressão.
@@ -20,7 +22,7 @@ Sistema web para planejamento, execução e acompanhamento de musculação e cor
 ## Arquitetura atual
 
 - Frontend: React + TypeScript + Vite.
-- UI: CSS próprio e `lucide-react` para ícones.
+- UI: CSS próprio, `lucide-react` para ícones e `recharts` para gráficos.
 - Backend: Express + TypeScript.
 - Autenticação: JWT com senha criptografada por `bcryptjs`.
 - ORM: Prisma.
@@ -41,12 +43,13 @@ Sistema web para planejamento, execução e acompanhamento de musculação e cor
 
 ## Próxima evolução técnica
 
-1. Separar as telas e componentes restantes de `src/App.tsx`.
-2. Adicionar histórico detalhado por exercício e PRs.
-3. Adicionar refresh token, recuperação de senha e confirmação de email.
-4. Criar gráficos reais e upload seguro de fotos.
-5. Evoluir regra de progressão automática com histórico de execução.
-6. Implementar integração com Garmin, Strava, Coros, Polar, Apple Health e Google Fit.
+1. Separar as telas restantes de `src/App.tsx`.
+2. Fazer code splitting para reduzir o bundle principal.
+3. Adicionar histórico detalhado por exercício e PRs.
+4. Adicionar refresh token, recuperação de senha e confirmação de email.
+5. Adicionar upload seguro de fotos.
+6. Evoluir regra de progressão automática com histórico de execução.
+7. Implementar integração com Garmin, Strava, Coros, Polar, Apple Health e Google Fit.
 
 ## Comandos
 

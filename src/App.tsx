@@ -10,7 +10,7 @@ import {
   Flame,
   Gauge,
   HeartPulse,
-  LineChart,
+  LineChart as LineChartIcon,
   Loader2,
   Lock,
   Medal,
@@ -24,7 +24,23 @@ import {
   Users,
   Zap,
 } from 'lucide-react'
+import {
+  Area,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  ComposedChart,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts'
 import { apiRequest, TOKEN_KEY } from './api/client'
+import { Panel } from './components/Panel'
+import { ProgressBar } from './components/ProgressBar'
+import { Stat } from './components/Stat'
 import type {
   ApiAssessment,
   ApiRun,
@@ -43,7 +59,6 @@ import type {
   RunType,
   Sex,
   SplitType,
-  StatIcon,
   UserRole,
   WorkoutDay,
   WorkoutExercise,
@@ -512,65 +527,6 @@ function getProgression(exercise: WorkoutExercise, profile: Profile) {
   }
 
   return 'Manter carga e buscar o topo da faixa de repetições.'
-}
-
-function Stat({
-  icon: Icon,
-  label,
-  value,
-  detail,
-  tone = 'neutral',
-}: {
-  icon: StatIcon
-  label: string
-  value: string
-  detail: string
-  tone?: 'neutral' | 'good' | 'warning' | 'danger'
-}) {
-  return (
-    <article className={`stat ${tone}`}>
-      <Icon aria-hidden="true" />
-      <div>
-        <span>{label}</span>
-        <strong>{value}</strong>
-        <small>{detail}</small>
-      </div>
-    </article>
-  )
-}
-
-function Panel({
-  title,
-  action,
-  children,
-}: {
-  title: string
-  action?: string
-  children: React.ReactNode
-}) {
-  return (
-    <section className="panel">
-      <div className="panel-header">
-        <h2>{title}</h2>
-        {action ? <span>{action}</span> : null}
-      </div>
-      {children}
-    </section>
-  )
-}
-
-function ProgressBar({ value, label }: { value: number; label: string }) {
-  return (
-    <div className="progress-row">
-      <div>
-        <span>{label}</span>
-        <strong>{value}%</strong>
-      </div>
-      <div className="progress-track" aria-hidden="true">
-        <span style={{ width: `${value}%` }} />
-      </div>
-    </div>
-  )
 }
 
 function AuthScreen({
@@ -1206,6 +1162,7 @@ function App() {
 
         {activeModule === 'dashboard' ? (
           <Dashboard
+            assessments={assessments}
             completion={completion}
             metrics={metrics}
             profile={profile}
@@ -1281,6 +1238,7 @@ function App() {
 }
 
 function Dashboard({
+  assessments,
   completion,
   metrics,
   profile,
@@ -1288,6 +1246,7 @@ function Dashboard({
   runs,
   workouts,
 }: {
+  assessments: Assessment[]
   completion: number
   metrics: Metrics
   profile: Profile
@@ -1360,7 +1319,7 @@ function Dashboard({
       <Panel title="Indicadores Analíticos">
         <div className="analytics-grid">
           <div className="metric-line">
-            <LineChart aria-hidden="true" />
+            <LineChartIcon aria-hidden="true" />
             <span>Pace médio</span>
             <strong>{metrics.avgPace}/km</strong>
           </div>
@@ -1381,6 +1340,8 @@ function Dashboard({
           </div>
         </div>
       </Panel>
+
+      <DashboardCharts assessments={assessments} metrics={metrics} runs={runs} workouts={workouts} />
 
       <Panel title="Perfil Ativo">
         <div className="profile-summary">
@@ -1403,6 +1364,113 @@ function Dashboard({
         </div>
       </Panel>
     </div>
+  )
+}
+
+function getChartDateLabel(date: string) {
+  return new Date(`${date.slice(0, 10)}T00:00:00`).toLocaleDateString('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+  })
+}
+
+function DashboardCharts({
+  assessments,
+  metrics,
+  runs,
+  workouts,
+}: {
+  assessments: Assessment[]
+  metrics: Metrics
+  runs: RunEntry[]
+  workouts: WorkoutDay[]
+}) {
+  const assessmentData = assessments.map((assessment) => ({
+    date: getChartDateLabel(assessment.date),
+    peso: assessment.weight,
+    gordura: assessment.bodyFat,
+    vo2: assessment.vo2,
+  }))
+  const runData = [...runs].reverse().map((run) => ({
+    date: getChartDateLabel(run.date),
+    km: run.distance,
+    pace: paceToSeconds(run.pace) / 60,
+    fc: run.avgHr,
+  }))
+  const strengthData = workouts.map((workout) => ({
+    name: workout.name,
+    volume: Math.round(getWorkoutVolume([workout])),
+    series: workout.exercises.reduce((sum, exercise) => sum + exercise.sets, 0),
+  }))
+  const recoveryData = [
+    { label: 'Recovery', value: metrics.recovery },
+    { label: 'Meta km', value: Math.min(100, Math.round((metrics.weeklyKm / 32) * 100)) },
+    { label: 'Aderência', value: Math.min(100, Math.round((metrics.workoutVolume / 6000) * 100)) },
+  ]
+
+  return (
+    <section className="chart-grid">
+      <Panel title="Evolução Física" action="peso, gordura e VO2">
+        <div className="chart-box">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={assessmentData}>
+              <CartesianGrid stroke="#dde3ed" strokeDasharray="3 3" />
+              <XAxis dataKey="date" tickLine={false} />
+              <YAxis tickLine={false} width={38} />
+              <Tooltip />
+              <Line dataKey="peso" name="Peso" stroke="#2d60ff" strokeWidth={2} type="monotone" />
+              <Line dataKey="gordura" name="Gordura" stroke="#d28a00" strokeWidth={2} type="monotone" />
+              <Line dataKey="vo2" name="VO2" stroke="#00a693" strokeWidth={2} type="monotone" />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      </Panel>
+
+      <Panel title="Corrida" action="volume, pace e FC">
+        <div className="chart-box">
+          <ResponsiveContainer width="100%" height="100%">
+            <ComposedChart data={runData}>
+              <CartesianGrid stroke="#dde3ed" strokeDasharray="3 3" />
+              <XAxis dataKey="date" tickLine={false} />
+              <YAxis tickLine={false} width={38} />
+              <Tooltip />
+              <Area dataKey="km" fill="#2d60ff" fillOpacity={0.16} name="Km" stroke="#2d60ff" />
+              <Line dataKey="pace" name="Pace min/km" stroke="#d28a00" strokeWidth={2} type="monotone" />
+              <Line dataKey="fc" name="FC média" stroke="#00a693" strokeWidth={2} type="monotone" />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+      </Panel>
+
+      <Panel title="Musculação" action="volume por treino">
+        <div className="chart-box">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={strengthData}>
+              <CartesianGrid stroke="#dde3ed" strokeDasharray="3 3" />
+              <XAxis dataKey="name" tickLine={false} />
+              <YAxis tickLine={false} width={48} />
+              <Tooltip />
+              <Bar dataKey="volume" fill="#2d60ff" name="Volume kg" radius={[6, 6, 0, 0]} />
+              <Bar dataKey="series" fill="#00a693" name="Séries" radius={[6, 6, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </Panel>
+
+      <Panel title="Prontidão" action="scores atuais">
+        <div className="chart-box">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={recoveryData} layout="vertical">
+              <CartesianGrid stroke="#dde3ed" strokeDasharray="3 3" />
+              <XAxis domain={[0, 100]} tickLine={false} type="number" />
+              <YAxis dataKey="label" tickLine={false} type="category" width={78} />
+              <Tooltip />
+              <Bar dataKey="value" fill="#00a693" name="Score" radius={[0, 6, 6, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </Panel>
+    </section>
   )
 }
 
