@@ -55,6 +55,7 @@ import { toast } from './components/toast-store'
 import type {
   ApiAssessment,
   ApiRun,
+  ApiSetExecution,
   ApiUser,
   ApiWorkout,
   ApiWorkoutExecution,
@@ -552,6 +553,36 @@ function getSmartProgression(
   return `Carga leve (RIR ${formatNumber(avgRir, 1)}). Considere subir para ${formatNumber(exercise.load * 1.05, 1)} kg ou adicionar repetições.`
 }
 
+function getExecutionDateKey(execution: ApiWorkoutExecution) {
+  return new Date(execution.finishedAt ?? execution.startedAt).toISOString().slice(0, 10)
+}
+
+function formatDateLabel(dateKey: string) {
+  return new Intl.DateTimeFormat('pt-BR', {
+    day: '2-digit',
+    month: 'short',
+    weekday: 'short',
+  }).format(new Date(`${dateKey}T12:00:00`))
+}
+
+function formatMonthLabel(dateKey: string) {
+  return new Intl.DateTimeFormat('pt-BR', {
+    month: 'long',
+    year: 'numeric',
+  }).format(new Date(`${dateKey}T12:00:00`))
+}
+
+function buildStrengthCalendarDays(reference = new Date()) {
+  const start = new Date(reference)
+  start.setDate(start.getDate() - 27)
+
+  return Array.from({ length: 28 }, (_, index) => {
+    const date = new Date(start)
+    date.setDate(start.getDate() + index)
+    return date.toISOString().slice(0, 10)
+  })
+}
+
 function createDraftExercise(source = exerciseLibrary[0]): WorkoutExercise {
   return {
     ...source,
@@ -828,6 +859,7 @@ function App() {
   const [apiMetrics, setApiMetrics] = useState<Metrics | null>(null)
   const [profile, setProfile] = useState<Profile>(initialProfile)
   const [workouts, setWorkouts] = useState<WorkoutDay[]>(initialWorkouts)
+  const [workoutExecutions, setWorkoutExecutions] = useState<ApiWorkoutExecution[]>([])
   const [runs, setRuns] = useState<RunEntry[]>(initialRuns)
   const [assessments, setAssessments] = useState<Assessment[]>(initialAssessments)
   const [completedSets, setCompletedSets] = useState<Record<string, boolean>>({})
@@ -875,12 +907,13 @@ function App() {
   }, [])
 
   async function fetchAuthenticatedData(token: string) {
-    const [meResponse, dashboardResponse, runsResponse, assessmentsResponse, workoutsResponse] = await Promise.all([
+    const [meResponse, dashboardResponse, runsResponse, assessmentsResponse, workoutsResponse, workoutExecutionsResponse] = await Promise.all([
       apiRequest<{ user: ApiUser }>('/me', { token }),
       apiRequest<DashboardResponse>('/dashboard', { token }),
       apiRequest<{ runs: ApiRun[] }>('/runs', { token }),
       apiRequest<{ assessments: ApiAssessment[] }>('/assessments', { token }),
       apiRequest<{ workouts: ApiWorkout[] }>('/workouts', { token }),
+      apiRequest<{ executions: ApiWorkoutExecution[] }>('/workout-executions', { token }),
     ])
 
     return {
@@ -889,6 +922,7 @@ function App() {
       runs: runsResponse.runs.map(toRun),
       assessments: assessmentsResponse.assessments.map(toAssessment),
       workouts: workoutsResponse.workouts.map(toWorkout),
+      workoutExecutions: workoutExecutionsResponse.executions,
     }
   }
 
@@ -903,6 +937,7 @@ function App() {
     setRuns(data.runs)
     setAssessments(data.assessments)
     setWorkouts(data.workouts)
+    setWorkoutExecutions(data.workoutExecutions)
   }
 
   useEffect(() => {
@@ -925,6 +960,7 @@ function App() {
         setRuns(data.runs)
         setAssessments(data.assessments)
         setWorkouts(data.workouts)
+        setWorkoutExecutions(data.workoutExecutions)
 
         setAuthStatus('authenticated')
       } catch (error: unknown) {
@@ -1419,6 +1455,7 @@ function App() {
             onSaveWorkout={saveWorkout}
             savingAction={savingAction}
             updateWorkoutLoad={updateWorkoutLoad}
+            workoutExecutions={workoutExecutions}
             workouts={workouts}
           />
         ) : null}
@@ -2033,6 +2070,7 @@ function Strength({
   setRestSeconds,
   setRestTotal,
   updateWorkoutLoad,
+  workoutExecutions,
   workouts,
 }: {
   authToken: string
@@ -2051,11 +2089,24 @@ function Strength({
   setRestSeconds: React.Dispatch<React.SetStateAction<number>>
   setRestTotal: React.Dispatch<React.SetStateAction<number>>
   updateWorkoutLoad: (workoutId: string, exerciseId: string, load: number) => void
+  workoutExecutions: ApiWorkoutExecution[]
   workouts: WorkoutDay[]
 }) {
   const [draft, setDraft] = useState<WorkoutDay>(() => createDraftWorkout())
   const isEditing = workouts.some((workout) => workout.id === draft.id)
   const [lastExecutions, setLastExecutions] = useState<Record<string, ApiWorkoutExecution>>({})
+  const calendarDays = useMemo(() => buildStrengthCalendarDays(), [])
+  const [selectedCalendarDay, setSelectedCalendarDay] = useState(() => calendarDays.at(-1) ?? new Date().toISOString().slice(0, 10))
+  const executionsByDay = useMemo(
+    () =>
+      workoutExecutions.reduce<Record<string, ApiWorkoutExecution[]>>((accumulator, execution) => {
+        const key = getExecutionDateKey(execution)
+        accumulator[key] = [...(accumulator[key] ?? []), execution]
+        return accumulator
+      }, {}),
+    [workoutExecutions],
+  )
+  const selectedExecutions = executionsByDay[selectedCalendarDay] ?? []
 
   useEffect(() => {
     if (!authToken || workouts.length === 0) return
@@ -2292,6 +2343,106 @@ function Strength({
             )}
             {isEditing ? 'Salvar treino' : 'Criar treino'}
           </button>
+        </div>
+      </Panel>
+
+      <Panel title="Calendário de Musculação" action={formatMonthLabel(selectedCalendarDay)}>
+        <div className="strength-calendar">
+          <div className="strength-calendar-grid">
+            {calendarDays.map((dateKey) => {
+              const dayExecutions = executionsByDay[dateKey] ?? []
+              const dayVolume = dayExecutions.reduce(
+                (total, execution) =>
+                  total + execution.setExecutions.reduce((sum, set) => sum + set.load * set.reps, 0),
+                0,
+              )
+              const isSelected = dateKey === selectedCalendarDay
+
+              return (
+                <button
+                  className={isSelected ? 'calendar-day selected' : 'calendar-day'}
+                  key={dateKey}
+                  type="button"
+                  onClick={() => setSelectedCalendarDay(dateKey)}
+                >
+                  <span>{formatDateLabel(dateKey)}</span>
+                  <strong>{new Date(`${dateKey}T12:00:00`).getDate()}</strong>
+                  {dayExecutions.length > 0 ? (
+                    <small>
+                      {dayExecutions.length} treino{dayExecutions.length > 1 ? 's' : ''}
+                    </small>
+                  ) : (
+                    <small>Sem treino</small>
+                  )}
+                  {dayVolume > 0 ? <em>{formatNumber(dayVolume, 0)} kg</em> : null}
+                </button>
+              )
+            })}
+          </div>
+
+          <div className="strength-day-detail">
+            <div className="strength-day-heading">
+              <div>
+                <span>Dia selecionado</span>
+                <strong>{formatDateLabel(selectedCalendarDay)}</strong>
+              </div>
+              <CalendarDays aria-hidden="true" />
+            </div>
+
+            {selectedExecutions.length > 0 ? (
+              <div className="strength-history-list">
+                {selectedExecutions.map((execution) => {
+                  const workoutName = execution.workout?.name ?? 'Treino registrado'
+                  const workoutSplit = execution.workout?.split ?? 'Musculação'
+                  const totalVolume = execution.setExecutions.reduce((sum, set) => sum + set.load * set.reps, 0)
+                  const groupedSets = execution.setExecutions.reduce<Record<string, ApiSetExecution[]>>((accumulator, set) => {
+                    accumulator[set.exerciseId] = [...(accumulator[set.exerciseId] ?? []), set]
+                    return accumulator
+                  }, {})
+
+                  return (
+                    <article className="strength-history-card" key={execution.id}>
+                      <div className="history-card-heading">
+                        <div>
+                          <span>{workoutSplit}</span>
+                          <strong>{workoutName}</strong>
+                        </div>
+                        <strong>{formatNumber(totalVolume, 0)} kg</strong>
+                      </div>
+
+                      {Object.entries(groupedSets).map(([exerciseId, sets]) => {
+                        const exercise = execution.workout?.exercises.find((item) => item.id === exerciseId)
+                        const avgRir = sets.reduce((sum, set) => sum + (set.rir ?? 10 - set.rpe), 0) / sets.length
+
+                        return (
+                          <div className="history-exercise" key={exerciseId}>
+                            <div>
+                              <strong>{exercise?.name ?? 'Exercício'}</strong>
+                              <span>{sets.length} séries · RIR médio {formatNumber(avgRir, 1)}</span>
+                            </div>
+                            <div className="history-set-list">
+                              {sets.map((set) => (
+                                <span key={set.id}>
+                                  S{set.setNumber}: {set.load}kg x {set.reps} · RPE {set.rpe}
+                                  {set.rir !== null ? ` · RIR ${set.rir}` : ''}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </article>
+                  )
+                })}
+              </div>
+            ) : (
+              <EmptyState
+                icon={CalendarDays}
+                title="Nenhum treino nesse dia"
+                description="Registre uma execução de musculação para ver cargas, séries, repetições e RIR no calendário."
+              />
+            )}
+          </div>
         </div>
       </Panel>
 

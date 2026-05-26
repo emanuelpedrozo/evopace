@@ -219,6 +219,7 @@ export type ApiWorkoutExecution = {
   finishedAt: string | null
   notes: string | null
   setExecutions: ApiSetExecution[]
+  workout?: ApiWorkout
 }
 
 export type NavigationItem = {

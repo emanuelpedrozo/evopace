@@ -153,6 +153,27 @@ app.get(
   }),
 )
 
+app.get(
+  '/api/workout-executions',
+  asyncHandler(async (request, response) => {
+    const executions = await prisma.workoutExecution.findMany({
+      where: { userId: currentUser(request).id },
+      include: {
+        workout: {
+          include: { exercises: { orderBy: { order: 'asc' } } },
+        },
+        setExecutions: {
+          orderBy: [{ exerciseId: 'asc' }, { setNumber: 'asc' }],
+        },
+      },
+      orderBy: { finishedAt: 'desc' },
+      take: 120,
+    })
+
+    response.json({ executions })
+  }),
+)
+
 app.post(
   '/api/workouts',
   asyncHandler(async (request, response) => {
