@@ -250,6 +250,26 @@ app.delete(
   }),
 )
 
+app.get(
+  '/api/workouts/:id/last-execution',
+  asyncHandler(async (request, response) => {
+    const { id } = idParamSchema.parse(request.params)
+    const existing = await prisma.workout.findFirst({ where: { id, userId: currentUser(request).id } })
+
+    if (!existing) {
+      throw new HttpError(404, 'WORKOUT_NOT_FOUND')
+    }
+
+    const execution = await prisma.workoutExecution.findFirst({
+      where: { workoutId: id, userId: currentUser(request).id },
+      orderBy: { createdAt: 'desc' },
+      include: { setExecutions: { orderBy: { setNumber: 'asc' } } },
+    })
+
+    response.json({ execution })
+  }),
+)
+
 app.post(
   '/api/workouts/:id/executions',
   asyncHandler(async (request, response) => {

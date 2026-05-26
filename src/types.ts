@@ -200,6 +200,27 @@ export type DashboardResponse = {
   workouts: ApiWorkout[]
 }
 
+export type ApiSetExecution = {
+  id: string
+  exerciseId: string
+  setNumber: number
+  reps: number
+  load: number
+  rpe: number
+  rir: number | null
+  failed: boolean
+  completed: boolean
+}
+
+export type ApiWorkoutExecution = {
+  id: string
+  workoutId: string
+  startedAt: string
+  finishedAt: string | null
+  notes: string | null
+  setExecutions: ApiSetExecution[]
+}
+
 export type NavigationItem = {
   id: ModuleId
   label: string

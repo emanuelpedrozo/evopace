@@ -905,7 +905,7 @@ input[type='range'] {
 
 .set-log-grid,
 .set-log-row {
-  grid-template-columns: 44px minmax(72px, 1fr) minmax(72px, 1fr) minmax(64px, 0.8fr) minmax(64px, 0.8fr) 72px 44px;
+  grid-template-columns: 44px minmax(72px, 1fr) minmax(72px, 1fr) minmax(110px, 1.3fr) minmax(64px, 0.8fr) 72px 44px;
 }
 
 .set-log-row {
@@ -963,6 +963,153 @@ input[type='range'] {
 .set-complete-toggle svg {
   width: 16px;
   height: 16px;
+}
+
+/* ── RIR indicators ── */
+
+.rir-cell {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.rir-cell input {
+  flex: 1;
+  min-width: 0;
+}
+
+.rir-badge {
+  font-size: 0.6rem;
+  font-weight: 800;
+  padding: 2px 5px;
+  border-radius: var(--radius-full);
+  white-space: nowrap;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  flex-shrink: 0;
+}
+
+.rir-failure { background: var(--red-50); color: var(--danger); }
+.rir-hyper { background: var(--amber-50); color: var(--amber-500); }
+.rir-moderate { background: var(--accent-50); color: var(--accent-600); }
+.rir-light { background: var(--gray-100); color: var(--gray-500); }
+
+[data-theme='dark'] .rir-failure { background: rgba(232, 96, 96, 0.15); }
+[data-theme='dark'] .rir-hyper { background: rgba(240, 168, 48, 0.15); }
+[data-theme='dark'] .rir-moderate { background: rgba(45, 96, 255, 0.12); }
+[data-theme='dark'] .rir-light { background: rgba(150, 160, 180, 0.12); }
+
+.rir-input-failure { border-color: var(--danger) !important; }
+.rir-input-hyper { border-color: var(--amber-500) !important; }
+
+/* ── Exercise summary ── */
+
+.exercise-summary {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: var(--tint);
+  font-size: var(--text-sm);
+  margin-top: 6px;
+}
+
+.exercise-summary-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.exercise-summary-item span {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.exercise-summary-item strong {
+  color: var(--text-strong);
+}
+
+.exercise-summary .progression {
+  flex: 1;
+  min-width: 200px;
+}
+
+/* ── Last execution reference ── */
+
+.last-execution-ref {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  border: 1px dashed var(--line);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.last-execution-ref strong {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.last-execution-ref svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  opacity: 0.5;
+}
+
+/* ── RIR tooltip ── */
+
+.rir-help {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  cursor: help;
+}
+
+.rir-help svg {
+  width: 13px;
+  height: 13px;
+  color: var(--text-muted);
+}
+
+.rir-help-content {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: 260px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-lg);
+  z-index: 50;
+  font-size: var(--text-xs);
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text);
+  line-height: 1.5;
+}
+
+.rir-help-content strong {
+  display: block;
+  color: var(--text-strong);
+  margin-bottom: 4px;
+  font-size: var(--text-sm);
+}
+
+.rir-help:hover .rir-help-content,
+.rir-help:focus-within .rir-help-content {
+  display: block;
 }
 
 .set-buttons {

@@ -11,6 +11,8 @@ import {
   Flame,
   Gauge,
   HeartPulse,
+  HelpCircle,
+  History,
   LineChart as LineChartIcon,
   Loader2,
   Lock,
@@ -55,6 +57,7 @@ import type {
   ApiRun,
   ApiUser,
   ApiWorkout,
+  ApiWorkoutExecution,
   Assessment,
   DashboardResponse,
   Exercise,
@@ -471,6 +474,84 @@ function getDefaultSetLog(exercise: WorkoutExercise): DailySetLog {
   }
 }
 
+function getRirClass(rir: number) {
+  if (rir <= 0) return 'rir-failure'
+  if (rir <= 2) return 'rir-hyper'
+  if (rir <= 4) return 'rir-moderate'
+  return 'rir-light'
+}
+
+function getRirLabel(rir: number) {
+  if (rir <= 0) return 'Falha'
+  if (rir <= 2) return 'Hipertrofia'
+  if (rir <= 4) return 'Moderado'
+  return 'Leve'
+}
+
+function getRirInputClass(rir: number) {
+  if (rir <= 0) return 'rir-input-failure'
+  if (rir <= 2) return 'rir-input-hyper'
+  return ''
+}
+
+function getExerciseSetStats(
+  exercise: WorkoutExercise,
+  workoutId: string,
+  setLogs: Record<string, DailySetLog>,
+  completedSets: Record<string, boolean>,
+) {
+  const logs: DailySetLog[] = []
+  let completedCount = 0
+  let totalVolume = 0
+
+  for (let i = 0; i < exercise.sets; i++) {
+    const key = `${workoutId}-${exercise.id}-${i}`
+    const isCompleted = completedSets[key] ?? false
+    const log = { ...getDefaultSetLog(exercise), ...setLogs[key], completed: isCompleted }
+    logs.push(log)
+
+    if (isCompleted) {
+      completedCount++
+      totalVolume += log.reps * log.load
+    }
+  }
+
+  const completedLogs = logs.filter((l) => l.completed)
+  const avgRir = completedLogs.length > 0
+    ? completedLogs.reduce((s, l) => s + l.rir, 0) / completedLogs.length
+    : null
+
+  return { logs, completedCount, totalVolume, avgRir }
+}
+
+function getSmartProgression(
+  exercise: WorkoutExercise,
+  profile: Profile,
+  avgRir: number | null,
+) {
+  if (profile.fatigue >= 7 || profile.soreness >= 7) {
+    return 'Manter carga e cortar 1 série se RIR cair abaixo de 2.'
+  }
+
+  if (avgRir === null) {
+    return 'Complete pelo menos uma série para ver a recomendação.'
+  }
+
+  if (avgRir <= 0) {
+    return `Carga no limite. Considere reduzir para ${formatNumber(exercise.load * 0.95, 1)} kg.`
+  }
+
+  if (avgRir <= 2) {
+    return 'Zona ideal para hipertrofia. Manter carga e buscar consistência.'
+  }
+
+  if (avgRir <= 3) {
+    return `Margem para subir carga para ${formatNumber(exercise.load * 1.025, 1)} kg na próxima sessão.`
+  }
+
+  return `Carga leve (RIR ${formatNumber(avgRir, 1)}). Considere subir para ${formatNumber(exercise.load * 1.05, 1)} kg ou adicionar repetições.`
+}
+
 function createDraftExercise(source = exerciseLibrary[0]): WorkoutExercise {
   return {
     ...source,
@@ -556,22 +637,6 @@ function getHybridRecommendations(profile: Profile, runs: RunEntry[], workouts: 
   }
 
   return suggestions
-}
-
-function getProgression(exercise: WorkoutExercise, profile: Profile) {
-  if (profile.fatigue >= 7 || profile.soreness >= 7) {
-    return 'Manter carga e cortar 1 série se RPE subir acima de 8.'
-  }
-
-  if (exercise.rpe <= 7) {
-    return `Subir carga para ${formatNumber(exercise.load * 1.025, 1)} kg na próxima sessão.`
-  }
-
-  if (exercise.rpe >= 9) {
-    return 'Repetir carga atual e priorizar técnica.'
-  }
-
-  return 'Manter carga e buscar o topo da faixa de repetições.'
 }
 
 function getStoredTheme(): 'light' | 'dark' | null {
@@ -1336,6 +1401,7 @@ function App() {
 
         {activeModule === 'musculacao' ? (
           <Strength
+            authToken={authToken ?? ''}
             completedSets={completedSets}
             setLogs={setLogs}
             onCreateWorkout={createWorkout}
@@ -1951,6 +2017,7 @@ function Assessments({
 }
 
 function Strength({
+  authToken,
   completedSets,
   onCreateWorkout,
   onDeleteWorkout,
@@ -1968,6 +2035,7 @@ function Strength({
   updateWorkoutLoad,
   workouts,
 }: {
+  authToken: string
   completedSets: Record<string, boolean>
   onCreateWorkout: (workout: WorkoutDay) => Promise<void>
   onDeleteWorkout: (id: string) => void
@@ -1987,6 +2055,21 @@ function Strength({
 }) {
   const [draft, setDraft] = useState<WorkoutDay>(() => createDraftWorkout())
   const isEditing = workouts.some((workout) => workout.id === draft.id)
+  const [lastExecutions, setLastExecutions] = useState<Record<string, ApiWorkoutExecution>>({})
+
+  useEffect(() => {
+    if (!authToken || workouts.length === 0) return
+
+    for (const workout of workouts) {
+      apiRequest<{ execution: ApiWorkoutExecution | null }>(`/workouts/${workout.id}/last-execution`, { token: authToken })
+        .then((res) => {
+          if (res.execution) {
+            setLastExecutions((prev) => ({ ...prev, [workout.id]: res.execution! }))
+          }
+        })
+        .catch(() => { /* silenciar — dado opcional */ })
+    }
+  }, [authToken, workouts])
 
   function updateDraftExercise(index: number, changes: Partial<WorkoutExercise>) {
     setDraft((current) => ({
@@ -2020,17 +2103,28 @@ function Strength({
   }
 
   function updateSetLog(setKey: string, exercise: WorkoutExercise, changes: Partial<DailySetLog>) {
+    const synced = { ...changes }
+
+    if (synced.failed) {
+      synced.rir = 0
+      synced.rpe = 10
+    } else if (Object.prototype.hasOwnProperty.call(synced, 'rir') && synced.rir !== undefined) {
+      synced.rpe = Math.max(1, Math.min(10, 10 - synced.rir))
+    } else if (Object.prototype.hasOwnProperty.call(synced, 'rpe') && synced.rpe !== undefined) {
+      synced.rir = Math.max(0, Math.min(10, 10 - synced.rpe))
+    }
+
     setSetLogs((current) => ({
       ...current,
       [setKey]: {
         ...getDefaultSetLog(exercise),
         ...current[setKey],
-        ...changes,
+        ...synced,
       },
     }))
 
-    if (Object.prototype.hasOwnProperty.call(changes, 'completed')) {
-      setCompletedSets((current) => ({ ...current, [setKey]: changes.completed ?? false }))
+    if (Object.prototype.hasOwnProperty.call(synced, 'completed')) {
+      setCompletedSets((current) => ({ ...current, [setKey]: synced.completed ?? false }))
     }
   }
 
@@ -2221,7 +2315,15 @@ function Strength({
                   <Timer aria-hidden="true" />
                 </div>
 
-                {workout.exercises.map((exercise) => (
+                {workout.exercises.map((exercise) => {
+                  const stats = getExerciseSetStats(exercise, workout.id, setLogs, completedSets)
+                  const lastExec = lastExecutions[workout.id]
+                  const lastSetsForExercise = lastExec?.setExecutions.filter((s) => s.exerciseId === exercise.id) ?? []
+                  const lastAvgRir = lastSetsForExercise.length > 0
+                    ? lastSetsForExercise.reduce((s, l) => s + (l.rir ?? (10 - l.rpe)), 0) / lastSetsForExercise.length
+                    : null
+
+                  return (
                   <div className="exercise-row" key={exercise.id}>
                     <div className="exercise-main">
                       <strong>{exercise.name}</strong>
@@ -2242,8 +2344,27 @@ function Strength({
                     </label>
                     <div className="progression">
                       <Sparkles aria-hidden="true" />
-                      <span>{getProgression(exercise, profile)}</span>
+                      <span>{getSmartProgression(exercise, profile, stats.avgRir)}</span>
                     </div>
+
+                    {lastSetsForExercise.length > 0 ? (
+                      <div className="last-execution-ref">
+                        <History aria-hidden="true" />
+                        <strong>Última sessão:</strong>
+                        {lastSetsForExercise.map((s) => (
+                          <span key={s.id}>
+                            {s.load}kg×{s.reps}
+                            {s.rir !== null ? ` RIR${s.rir}` : ''}
+                          </span>
+                        ))}
+                        {lastAvgRir !== null ? (
+                          <span className={`rir-badge ${getRirClass(Math.round(lastAvgRir))}`}>
+                            RIR médio {formatNumber(lastAvgRir, 1)}
+                          </span>
+                        ) : null}
+                      </div>
+                    ) : null}
+
                     <div className="daily-load-log">
                       <div className="daily-load-heading">
                         <strong>Cargas do dia</strong>
@@ -2253,7 +2374,15 @@ function Strength({
                         <span>Série</span>
                         <span>Kg</span>
                         <span>Reps</span>
-                        <span>RIR</span>
+                        <span className="rir-help" tabIndex={0}>
+                          RIR
+                          <HelpCircle aria-hidden="true" />
+                          <span className="rir-help-content" role="tooltip">
+                            <strong>Repetições na Recâmara</strong>
+                            Quantas reps você ainda conseguiria antes da falha.<br />
+                            0 = falha total · 1-2 = hipertrofia · 3-4 = força · 5+ = leve
+                          </span>
+                        </span>
                         <span>RPE</span>
                         <span>Falha</span>
                         <span>OK</span>
@@ -2283,14 +2412,20 @@ function Strength({
                                 value={log.reps}
                                 onChange={(event) => updateSetLog(setKey, exercise, { reps: Number(event.target.value) })}
                               />
-                              <input
-                                aria-label={`Repetições na reserva da série ${index + 1}`}
-                                max="10"
-                                min="0"
-                                type="number"
-                                value={log.rir}
-                                onChange={(event) => updateSetLog(setKey, exercise, { rir: Number(event.target.value) })}
-                              />
+                              <div className="rir-cell">
+                                <input
+                                  aria-label={`Repetições na reserva da série ${index + 1}`}
+                                  className={getRirInputClass(log.rir)}
+                                  max="10"
+                                  min="0"
+                                  type="number"
+                                  value={log.rir}
+                                  onChange={(event) => updateSetLog(setKey, exercise, { rir: Number(event.target.value) })}
+                                />
+                                <span className={`rir-badge ${getRirClass(log.rir)}`}>
+                                  {getRirLabel(log.rir)}
+                                </span>
+                              </div>
                               <input
                                 aria-label={`RPE da série ${index + 1}`}
                                 max="10"
@@ -2324,9 +2459,29 @@ function Strength({
                           )
                         })}
                       </div>
+
+                      {stats.completedCount > 0 ? (
+                        <div className="exercise-summary">
+                          <div className="exercise-summary-item">
+                            <span>RIR médio</span>
+                            <strong className={`rir-badge ${getRirClass(Math.round(stats.avgRir!))}`}>
+                              {formatNumber(stats.avgRir!, 1)} — {getRirLabel(Math.round(stats.avgRir!))}
+                            </strong>
+                          </div>
+                          <div className="exercise-summary-item">
+                            <span>Volume total</span>
+                            <strong>{formatNumber(stats.totalVolume, 0)} kg</strong>
+                          </div>
+                          <div className="exercise-summary-item">
+                            <span>Progresso</span>
+                            <strong>{stats.completedCount}/{exercise.sets} séries</strong>
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
                   </div>
-                ))}
+                  )
+                })}
 
                 <div className="workout-actions">
                   <button
