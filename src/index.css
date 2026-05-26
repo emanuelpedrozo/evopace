@@ -1,17 +1,88 @@
+/* ── Design Tokens ── */
+
 :root {
-  --bg: #f5f7fb;
+  /* Paleta expandida */
+  --accent-50: #eef3ff;
+  --accent-100: #d9e4ff;
+  --accent-200: #b3c9ff;
+  --accent-400: #5a8aff;
+  --accent-500: #2d60ff;
+  --accent-600: #1a4ae6;
+  --accent-700: #1038b8;
+
+  --green-50: #e6f7f5;
+  --green-100: #b3ebe4;
+  --green-500: #00a693;
+  --green-600: #008a7b;
+
+  --amber-50: #fff8e6;
+  --amber-100: #ffedb3;
+  --amber-500: #d28a00;
+
+  --red-50: #fdeaea;
+  --red-100: #f9c4c4;
+  --red-500: #d94d4d;
+
+  --gray-50: #f5f7fb;
+  --gray-100: #eaecf3;
+  --gray-200: #dde3ed;
+  --gray-300: #c4cdd9;
+  --gray-400: #9ba6b5;
+  --gray-500: #737f91;
+  --gray-600: #576373;
+  --gray-700: #445064;
+  --gray-800: #2a3040;
+  --gray-900: #141821;
+
+  /* Semanticas (tema claro) */
+  --bg: var(--gray-50);
   --surface: #ffffff;
-  --ink: #141821;
-  --text: #445064;
-  --text-strong: #141821;
-  --text-muted: #737f91;
-  --line: #dde3ed;
-  --accent: #2d60ff;
-  --good: #00a693;
-  --warning: #d28a00;
-  --danger: #d94d4d;
-  --tint: #eef3ff;
+  --ink: var(--gray-900);
+  --text: var(--gray-700);
+  --text-strong: var(--gray-900);
+  --text-muted: var(--gray-500);
+  --line: var(--gray-200);
+  --accent: var(--accent-500);
+  --good: var(--green-500);
+  --warning: var(--amber-500);
+  --danger: var(--red-500);
+  --tint: var(--accent-50);
   --focus: rgba(45, 96, 255, 0.18);
+  --overlay: rgba(20, 24, 33, 0.48);
+  --shadow-sm: 0 1px 4px rgba(20, 24, 33, 0.06);
+  --shadow-md: 0 4px 16px rgba(20, 24, 33, 0.1);
+  --shadow-lg: 0 10px 30px rgba(20, 24, 33, 0.14);
+
+  /* Escala tipografica */
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-base: 0.9rem;
+  --text-lg: 1.05rem;
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem;
+  --text-3xl: 2rem;
+  --text-4xl: 3rem;
+
+  /* Espacamento */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  /* Raios */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-full: 999px;
+
+  /* Transicoes */
+  --transition-fast: 0.15s ease;
+  --transition-normal: 0.2s ease;
+  --transition-slow: 0.3s ease;
+
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   color: var(--text);
@@ -22,12 +93,57 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* ── Dark Mode ── */
+
+[data-theme='dark'] {
+  --bg: #0f1117;
+  --surface: #1a1d27;
+  --ink: #e8ebf0;
+  --text: #a0a8b8;
+  --text-strong: #e8ebf0;
+  --text-muted: #6b7585;
+  --line: #2a2f3d;
+  --accent: #5a8aff;
+  --good: #2bc4b4;
+  --warning: #f0a830;
+  --danger: #e86060;
+  --tint: rgba(45, 96, 255, 0.12);
+  --focus: rgba(90, 138, 255, 0.24);
+  --overlay: rgba(0, 0, 0, 0.6);
+  --shadow-sm: 0 1px 4px rgba(0, 0, 0, 0.2);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 10px 30px rgba(0, 0, 0, 0.4);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --ink: #e8ebf0;
+    --text: #a0a8b8;
+    --text-strong: #e8ebf0;
+    --text-muted: #6b7585;
+    --line: #2a2f3d;
+    --accent: #5a8aff;
+    --good: #2bc4b4;
+    --warning: #f0a830;
+    --danger: #e86060;
+    --tint: rgba(45, 96, 255, 0.12);
+    --focus: rgba(90, 138, 255, 0.24);
+    --overlay: rgba(0, 0, 0, 0.6);
+    --shadow-sm: 0 1px 4px rgba(0, 0, 0, 0.2);
+    --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.3);
+    --shadow-lg: 0 10px 30px rgba(0, 0, 0, 0.4);
+  }
+}
+
 * {
   box-sizing: border-box;
 }
 
 html {
   background: var(--bg);
+  color-scheme: light dark;
 }
 
 body {

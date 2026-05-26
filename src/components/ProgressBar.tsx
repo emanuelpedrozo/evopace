@@ -4,10 +4,17 @@ export function ProgressBar({ value, label }: { value: number; label: string }) 
   return (
     <div className="progress-row">
       <div>
-        <span>{label}</span>
+        <span id={`progress-${label}`}>{label}</span>
         <strong>{normalizedValue}%</strong>
       </div>
-      <div className="progress-track" aria-hidden="true">
+      <div
+        className="progress-track"
+        role="progressbar"
+        aria-valuenow={normalizedValue}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-labelledby={`progress-${label}`}
+      >
         <span style={{ width: `${normalizedValue}%` }} />
       </div>
     </div>

@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useMemo, useState } from 'react'
+import { type FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Activity,
   Award,
@@ -6,6 +6,7 @@ import {
   CalendarDays,
   Check,
   ChevronRight,
+  Construction,
   Dumbbell,
   Flame,
   Gauge,
@@ -19,6 +20,7 @@ import {
   Route,
   ShieldCheck,
   Sparkles,
+  Sun,
   Timer,
   TrendingUp,
   Users,
@@ -38,9 +40,16 @@ import {
   YAxis,
 } from 'recharts'
 import { apiRequest, TOKEN_KEY } from './api/client'
+import { ConfirmDialog } from './components/ConfirmDialog'
+import { initialConfirmState, type ConfirmDialogState } from './components/confirm-dialog-state'
+import { EmptyState } from './components/EmptyState'
 import { Panel } from './components/Panel'
 import { ProgressBar } from './components/ProgressBar'
+import { RestTimer } from './components/RestTimer'
+// Skeleton components disponíveis em './components/Skeleton' para uso futuro por módulo
 import { Stat } from './components/Stat'
+import { ToastContainer } from './components/Toast'
+import { toast } from './components/toast-store'
 import type {
   ApiAssessment,
   ApiRun,
@@ -64,6 +73,8 @@ import type {
   WorkoutExercise,
 } from './types'
 import './App.css'
+
+const THEME_KEY = 'evopace.theme'
 
 const goals: Goal[] = [
   'emagrecimento',
@@ -311,6 +322,20 @@ function secondsToPace(totalSeconds: number) {
   return `${minutes}:${String(seconds).padStart(2, '0')}`
 }
 
+function getHrZone(avgHr: number, maxHr: number) {
+  if (maxHr <= 0) return 2
+  const pct = (avgHr / maxHr) * 100
+  if (pct < 60) return 1
+  if (pct < 70) return 2
+  if (pct < 80) return 3
+  if (pct < 90) return 4
+  return 5
+}
+
+function getEstimatedMaxHr(age: number) {
+  return 220 - age
+}
+
 function toProfile(user: ApiUser): Profile {
   return {
     name: user.name,
@@ -529,6 +554,66 @@ function getProgression(exercise: WorkoutExercise, profile: Profile) {
   return 'Manter carga e buscar o topo da faixa de repetições.'
 }
 
+function getStoredTheme(): 'light' | 'dark' | null {
+  try {
+    const stored = window.localStorage.getItem(THEME_KEY)
+    if (stored === 'light' || stored === 'dark') return stored
+  } catch { /* noop */ }
+  return null
+}
+
+function applyTheme(theme: 'light' | 'dark') {
+  document.documentElement.setAttribute('data-theme', theme)
+  window.localStorage.setItem(THEME_KEY, theme)
+}
+
+function getInitialTheme(): 'light' | 'dark' {
+  const stored = getStoredTheme()
+  if (stored) return stored
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+}
+
+function buildWeekTimeline(workouts: WorkoutDay[], runs: RunEntry[]) {
+  const today = new Date()
+  const dayOfWeek = today.getDay()
+  const monday = new Date(today)
+  monday.setDate(today.getDate() - ((dayOfWeek + 6) % 7))
+
+  const dayLabels = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom']
+
+  return dayLabels.map((label, index) => {
+    const date = new Date(monday)
+    date.setDate(monday.getDate() + index)
+    const dateStr = date.toISOString().slice(0, 10)
+
+    const dayRuns = runs.filter((r) => r.date === dateStr)
+    if (dayRuns.length > 0) {
+      const run = dayRuns[0]
+      return { day: label, title: run.type.charAt(0).toUpperCase() + run.type.slice(1), detail: `${run.distance} km`, type: 'run' }
+    }
+
+    if (index < workouts.length && index % 2 === 0 && workouts.length > 0) {
+      const w = workouts[index % workouts.length]
+      return { day: label, title: w.name, detail: w.focus, type: 'strength' }
+    }
+
+    if (index === 6) {
+      return { day: label, title: 'Descanso', detail: 'Sono e hidratação', type: 'recovery' }
+    }
+
+    if (index === 4) {
+      return { day: label, title: 'Mobilidade', detail: 'Recuperação ativa', type: 'recovery' }
+    }
+
+    if (workouts.length > 0) {
+      const w = workouts[(index + 1) % workouts.length]
+      return { day: label, title: w.name, detail: w.focus, type: 'strength' }
+    }
+
+    return { day: label, title: 'Livre', detail: 'Sem atividade agendada', type: 'recovery' }
+  })
+}
+
 function AuthScreen({
   error,
   onLogin,
@@ -603,6 +688,7 @@ function AuthScreen({
               Nome
               <input
                 minLength={2}
+                placeholder=" "
                 required
                 value={name}
                 onChange={(event) => setName(event.target.value)}
@@ -613,6 +699,7 @@ function AuthScreen({
           <label>
             Email
             <input
+              placeholder=" "
               required
               type="email"
               value={email}
@@ -624,6 +711,7 @@ function AuthScreen({
             Senha
             <input
               minLength={mode === 'register' ? 8 : 1}
+              placeholder=" "
               required
               type="password"
               value={password}
@@ -645,12 +733,12 @@ function AuthScreen({
 
 function App() {
   const [activeModule, setActiveModule] = useState<ModuleId>('dashboard')
+  const [theme, setTheme] = useState<'light' | 'dark'>(getInitialTheme)
   const [authToken, setAuthToken] = useState(() => window.localStorage.getItem(TOKEN_KEY))
   const [authStatus, setAuthStatus] = useState<'loading' | 'authenticated' | 'anonymous'>(() =>
     authToken ? 'loading' : 'anonymous',
   )
   const [authError, setAuthError] = useState('')
-  const [actionMessage, setActionMessage] = useState('')
   const [savingAction, setSavingAction] = useState('')
   const [apiMetrics, setApiMetrics] = useState<Metrics | null>(null)
   const [profile, setProfile] = useState<Profile>(initialProfile)
@@ -659,6 +747,10 @@ function App() {
   const [assessments, setAssessments] = useState<Assessment[]>(initialAssessments)
   const [completedSets, setCompletedSets] = useState<Record<string, boolean>>({})
   const [restSeconds, setRestSeconds] = useState(0)
+  const [restTotal, setRestTotal] = useState(0)
+  const [confirmState, setConfirmState] = useState<ConfirmDialogState>(initialConfirmState)
+  const [runFilter, setRunFilter] = useState<RunType | ''>('')
+  const [assessmentFilter, setAssessmentFilter] = useState('')
   const [runForm, setRunForm] = useState({
     type: 'regenerativo' as RunType,
     distance: 5,
@@ -679,6 +771,22 @@ function App() {
     vo2: 46,
     restingHr: 56,
   })
+
+  useEffect(() => {
+    applyTheme(theme)
+  }, [theme])
+
+  function toggleTheme() {
+    setTheme((current) => (current === 'light' ? 'dark' : 'light'))
+  }
+
+  function requestConfirm(title: string, message: string, onConfirm: () => void) {
+    setConfirmState({ open: true, title, message, onConfirm })
+  }
+
+  const closeConfirm = useCallback(() => {
+    setConfirmState(initialConfirmState)
+  }, [])
 
   async function fetchAuthenticatedData(token: string) {
     const [meResponse, dashboardResponse, runsResponse, assessmentsResponse, workoutsResponse] = await Promise.all([
@@ -796,6 +904,18 @@ function App() {
   )
   const completion = Math.round((completedCount / totalSets) * 100) || 0
 
+  const filteredRuns = useMemo(() => {
+    if (!runFilter) return runs
+    return runs.filter((r) => r.type === runFilter)
+  }, [runs, runFilter])
+
+  const filteredAssessments = useMemo(() => {
+    if (!assessmentFilter) return assessments
+    return assessments.filter((a) => a.date.startsWith(assessmentFilter))
+  }, [assessments, assessmentFilter])
+
+  const estimatedMaxHr = getEstimatedMaxHr(profile.age)
+
   function updateWorkoutLoad(workoutId: string, exerciseId: string, load: number) {
     setWorkouts((current) =>
       current.map((workout) =>
@@ -815,7 +935,6 @@ function App() {
     if (!authToken) return
 
     setSavingAction('profile')
-    setActionMessage('')
 
     try {
       const response = await apiRequest<{ user: ApiUser }>('/profile', {
@@ -840,9 +959,9 @@ function App() {
 
       setProfile(toProfile(response.user))
       await refreshAuthenticatedData()
-      setActionMessage('Perfil salvo no banco.')
+      toast.success('Perfil salvo no banco.')
     } catch (error) {
-      setActionMessage(error instanceof Error ? error.message : 'Falha ao salvar perfil.')
+      toast.error(error instanceof Error ? error.message : 'Falha ao salvar perfil.')
     } finally {
       setSavingAction('')
     }
@@ -852,7 +971,6 @@ function App() {
     if (!authToken) return
 
     setSavingAction('run')
-    setActionMessage('')
 
     try {
       await apiRequest<{ run: ApiRun }>('/runs', {
@@ -870,9 +988,9 @@ function App() {
         }),
       })
       await refreshAuthenticatedData()
-      setActionMessage('Corrida registrada no banco.')
+      toast.success('Corrida registrada no banco.')
     } catch (error) {
-      setActionMessage(error instanceof Error ? error.message : 'Falha ao salvar corrida.')
+      toast.error(error instanceof Error ? error.message : 'Falha ao salvar corrida.')
     } finally {
       setSavingAction('')
     }
@@ -882,14 +1000,13 @@ function App() {
     if (!authToken) return
 
     setSavingAction(`run-${id}`)
-    setActionMessage('')
 
     try {
       await apiRequest<null>(`/runs/${id}`, { method: 'DELETE', token: authToken })
       await refreshAuthenticatedData()
-      setActionMessage('Corrida removida.')
+      toast.success('Corrida removida.')
     } catch (error) {
-      setActionMessage(error instanceof Error ? error.message : 'Falha ao remover corrida.')
+      toast.error(error instanceof Error ? error.message : 'Falha ao remover corrida.')
     } finally {
       setSavingAction('')
     }
@@ -899,7 +1016,6 @@ function App() {
     if (!authToken) return
 
     setSavingAction('assessment')
-    setActionMessage('')
 
     try {
       await apiRequest<{ assessment: ApiAssessment }>('/assessments', {
@@ -908,9 +1024,9 @@ function App() {
         body: JSON.stringify(assessmentForm),
       })
       await refreshAuthenticatedData()
-      setActionMessage('Avaliação registrada no banco.')
+      toast.success('Avaliação registrada no banco.')
     } catch (error) {
-      setActionMessage(error instanceof Error ? error.message : 'Falha ao salvar avaliação.')
+      toast.error(error instanceof Error ? error.message : 'Falha ao salvar avaliação.')
     } finally {
       setSavingAction('')
     }
@@ -920,14 +1036,13 @@ function App() {
     if (!authToken) return
 
     setSavingAction(`assessment-${id}`)
-    setActionMessage('')
 
     try {
       await apiRequest<null>(`/assessments/${id}`, { method: 'DELETE', token: authToken })
       await refreshAuthenticatedData()
-      setActionMessage('Avaliação removida.')
+      toast.success('Avaliação removida.')
     } catch (error) {
-      setActionMessage(error instanceof Error ? error.message : 'Falha ao remover avaliação.')
+      toast.error(error instanceof Error ? error.message : 'Falha ao remover avaliação.')
     } finally {
       setSavingAction('')
     }
@@ -937,7 +1052,6 @@ function App() {
     if (!authToken) return
 
     setSavingAction(`workout-${workout.id}`)
-    setActionMessage('')
 
     try {
       await apiRequest<{ workout: ApiWorkout }>(`/workouts/${workout.id}`, {
@@ -946,9 +1060,9 @@ function App() {
         body: JSON.stringify(toWorkoutPayload(workout)),
       })
       await refreshAuthenticatedData()
-      setActionMessage('Treino salvo no banco.')
+      toast.success('Treino salvo no banco.')
     } catch (error) {
-      setActionMessage(error instanceof Error ? error.message : 'Falha ao salvar treino.')
+      toast.error(error instanceof Error ? error.message : 'Falha ao salvar treino.')
     } finally {
       setSavingAction('')
     }
@@ -958,7 +1072,6 @@ function App() {
     if (!authToken) return
 
     setSavingAction('workout-create')
-    setActionMessage('')
 
     try {
       await apiRequest<{ workout: ApiWorkout }>('/workouts', {
@@ -967,9 +1080,9 @@ function App() {
         body: JSON.stringify(toWorkoutPayload(workout)),
       })
       await refreshAuthenticatedData()
-      setActionMessage('Treino criado no banco.')
+      toast.success('Treino criado no banco.')
     } catch (error) {
-      setActionMessage(error instanceof Error ? error.message : 'Falha ao criar treino.')
+      toast.error(error instanceof Error ? error.message : 'Falha ao criar treino.')
     } finally {
       setSavingAction('')
     }
@@ -979,14 +1092,13 @@ function App() {
     if (!authToken) return
 
     setSavingAction(`workout-delete-${id}`)
-    setActionMessage('')
 
     try {
       await apiRequest<null>(`/workouts/${id}`, { method: 'DELETE', token: authToken })
       await refreshAuthenticatedData()
-      setActionMessage('Treino excluído.')
+      toast.success('Treino excluído.')
     } catch (error) {
-      setActionMessage(error instanceof Error ? error.message : 'Falha ao excluir treino.')
+      toast.error(error instanceof Error ? error.message : 'Falha ao excluir treino.')
     } finally {
       setSavingAction('')
     }
@@ -1016,12 +1128,11 @@ function App() {
     )
 
     if (!sets.length) {
-      setActionMessage('Marque pelo menos uma série concluída para registrar a execução.')
+      toast.warning('Marque pelo menos uma série concluída para registrar a execução.')
       return
     }
 
     setSavingAction(`execution-${workout.id}`)
-    setActionMessage('')
 
     try {
       await apiRequest(`/workouts/${workout.id}/executions`, {
@@ -1036,9 +1147,9 @@ function App() {
         Object.fromEntries(Object.entries(current).filter(([key]) => !key.startsWith(`${workout.id}-`))),
       )
       await refreshAuthenticatedData()
-      setActionMessage('Execução de treino registrada.')
+      toast.success('Execução de treino registrada.')
     } catch (error) {
-      setActionMessage(error instanceof Error ? error.message : 'Falha ao registrar execução.')
+      toast.error(error instanceof Error ? error.message : 'Falha ao registrar execução.')
     } finally {
       setSavingAction('')
     }
@@ -1131,6 +1242,10 @@ function App() {
           })}
         </nav>
 
+        <button className="theme-toggle" type="button" onClick={toggleTheme} aria-label={theme === 'light' ? 'Ativar modo escuro' : 'Ativar modo claro'}>
+          {theme === 'light' ? <Moon aria-hidden="true" /> : <Sun aria-hidden="true" />}
+        </button>
+
         <div className="sidebar-footer">
           <Moon aria-hidden="true" />
           <div>
@@ -1158,8 +1273,6 @@ function App() {
           </div>
         </header>
 
-        {actionMessage ? <div className="action-message">{actionMessage}</div> : null}
-
         {activeModule === 'dashboard' ? (
           <Dashboard
             assessments={assessments}
@@ -1184,12 +1297,16 @@ function App() {
         {activeModule === 'avaliacao' ? (
           <Assessments
             assessmentForm={assessmentForm}
-            assessments={assessments}
+            assessments={filteredAssessments}
+            filter={assessmentFilter}
             isSaving={savingAction === 'assessment'}
             onAdd={addAssessment}
-            onDelete={deleteAssessment}
+            onDelete={(id) =>
+              requestConfirm('Excluir avaliação', 'Tem certeza que deseja excluir esta avaliação? Esta ação não pode ser desfeita.', () => void deleteAssessment(id))
+            }
             savingAction={savingAction}
             setAssessmentForm={setAssessmentForm}
+            setFilter={setAssessmentFilter}
           />
         ) : null}
 
@@ -1197,11 +1314,15 @@ function App() {
           <Strength
             completedSets={completedSets}
             onCreateWorkout={createWorkout}
-            onDeleteWorkout={deleteWorkout}
+            onDeleteWorkout={(id) =>
+              requestConfirm('Excluir treino', 'Tem certeza que deseja excluir este treino e todos os seus exercícios?', () => void deleteWorkout(id))
+            }
             profile={profile}
             restSeconds={restSeconds}
+            restTotal={restTotal}
             setCompletedSets={setCompletedSets}
             setRestSeconds={setRestSeconds}
+            setRestTotal={setRestTotal}
             onSaveExecution={saveWorkoutExecution}
             onSaveWorkout={saveWorkout}
             savingAction={savingAction}
@@ -1212,13 +1333,18 @@ function App() {
 
         {activeModule === 'corrida' ? (
           <Running
+            estimatedMaxHr={estimatedMaxHr}
+            filter={runFilter}
             metrics={metrics}
             isSaving={savingAction === 'run'}
             onAdd={addRun}
-            onDelete={deleteRun}
+            onDelete={(id) =>
+              requestConfirm('Excluir corrida', 'Tem certeza que deseja excluir esta corrida?', () => void deleteRun(id))
+            }
             runForm={runForm}
-            runs={runs}
+            runs={filteredRuns}
             savingAction={savingAction}
+            setFilter={setRunFilter}
             setRunForm={setRunForm}
           />
         ) : null}
@@ -1233,6 +1359,9 @@ function App() {
 
         {activeModule === 'admin' ? <Admin /> : null}
       </main>
+
+      <ToastContainer />
+      <ConfirmDialog state={confirmState} onClose={closeConfirm} />
     </div>
   )
 }
@@ -1255,6 +1384,7 @@ function Dashboard({
   workouts: WorkoutDay[]
 }) {
   const recoveryTone = metrics.recovery >= 70 ? 'good' : metrics.recovery >= 45 ? 'warning' : 'danger'
+  const weekTimeline = useMemo(() => buildWeekTimeline(workouts, runs), [workouts, runs])
 
   return (
     <div className="module-grid">
@@ -1281,18 +1411,10 @@ function Dashboard({
         <Stat detail="Séries concluídas" icon={Check} label="Aderência" tone="good" value={`${completion}%`} />
       </section>
 
-      <Panel title="Visão da Semana" action="MVP operacional">
+      <Panel title="Visão da Semana" action="Baseado nos seus dados">
         <div className="split-layout">
           <div className="timeline">
-            {[
-              ['Seg', 'Lower A', 'Pernas pesado', 'strength'],
-              ['Ter', 'Regenerativo', '6 km Z2', 'run'],
-              ['Qua', 'Upper A', 'Força superior', 'strength'],
-              ['Qui', 'Intervalado', '6 x 600 m', 'run'],
-              ['Sex', 'Mobilidade', 'Recuperação', 'recovery'],
-              ['Sáb', 'Longão', '14 km controlado', 'run'],
-              ['Dom', 'Descanso', 'Sono e hidratação', 'recovery'],
-            ].map(([day, title, detail, type]) => (
+            {weekTimeline.map(({ day, title, detail, type }) => (
               <article className={`timeline-item ${type}`} key={day}>
                 <span>{day}</span>
                 <div>
@@ -1411,61 +1533,82 @@ function DashboardCharts({
   return (
     <section className="chart-grid">
       <Panel title="Evolução Física" action="peso, gordura e VO2">
-        <div className="chart-box">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={assessmentData}>
-              <CartesianGrid stroke="#dde3ed" strokeDasharray="3 3" />
-              <XAxis dataKey="date" tickLine={false} />
-              <YAxis tickLine={false} width={38} />
-              <Tooltip />
-              <Line dataKey="peso" name="Peso" stroke="#2d60ff" strokeWidth={2} type="monotone" />
-              <Line dataKey="gordura" name="Gordura" stroke="#d28a00" strokeWidth={2} type="monotone" />
-              <Line dataKey="vo2" name="VO2" stroke="#00a693" strokeWidth={2} type="monotone" />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
+        {assessmentData.length > 0 ? (
+          <div className="chart-box">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={assessmentData}>
+                <CartesianGrid stroke="var(--line)" strokeDasharray="3 3" />
+                <XAxis dataKey="date" tickLine={false} />
+                <YAxis tickLine={false} width={38} />
+                <Tooltip />
+                <Line dataKey="peso" name="Peso" stroke="var(--accent)" strokeWidth={2} type="monotone" />
+                <Line dataKey="gordura" name="Gordura" stroke="var(--warning)" strokeWidth={2} type="monotone" />
+                <Line dataKey="vo2" name="VO2" stroke="var(--good)" strokeWidth={2} type="monotone" />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        ) : (
+          <div className="chart-empty">
+            <HeartPulse aria-hidden="true" />
+            <p>Registre sua primeira avaliação física para visualizar a evolução.</p>
+          </div>
+        )}
       </Panel>
 
       <Panel title="Corrida" action="volume, pace e FC">
-        <div className="chart-box">
-          <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={runData}>
-              <CartesianGrid stroke="#dde3ed" strokeDasharray="3 3" />
-              <XAxis dataKey="date" tickLine={false} />
-              <YAxis tickLine={false} width={38} />
-              <Tooltip />
-              <Area dataKey="km" fill="#2d60ff" fillOpacity={0.16} name="Km" stroke="#2d60ff" />
-              <Line dataKey="pace" name="Pace min/km" stroke="#d28a00" strokeWidth={2} type="monotone" />
-              <Line dataKey="fc" name="FC média" stroke="#00a693" strokeWidth={2} type="monotone" />
-            </ComposedChart>
-          </ResponsiveContainer>
-        </div>
+        {runData.length > 0 ? (
+          <div className="chart-box">
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart data={runData}>
+                <CartesianGrid stroke="var(--line)" strokeDasharray="3 3" />
+                <XAxis dataKey="date" tickLine={false} />
+                <YAxis tickLine={false} width={38} />
+                <Tooltip />
+                <Area dataKey="km" fill="var(--accent)" fillOpacity={0.16} name="Km" stroke="var(--accent)" />
+                <Line dataKey="pace" name="Pace min/km" stroke="var(--warning)" strokeWidth={2} type="monotone" />
+                <Line dataKey="fc" name="FC média" stroke="var(--good)" strokeWidth={2} type="monotone" />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+        ) : (
+          <div className="chart-empty">
+            <Route aria-hidden="true" />
+            <p>Registre sua primeira corrida para visualizar os dados.</p>
+          </div>
+        )}
       </Panel>
 
       <Panel title="Musculação" action="volume por treino">
-        <div className="chart-box">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={strengthData}>
-              <CartesianGrid stroke="#dde3ed" strokeDasharray="3 3" />
-              <XAxis dataKey="name" tickLine={false} />
-              <YAxis tickLine={false} width={48} />
-              <Tooltip />
-              <Bar dataKey="volume" fill="#2d60ff" name="Volume kg" radius={[6, 6, 0, 0]} />
-              <Bar dataKey="series" fill="#00a693" name="Séries" radius={[6, 6, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
+        {strengthData.length > 0 ? (
+          <div className="chart-box">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={strengthData}>
+                <CartesianGrid stroke="var(--line)" strokeDasharray="3 3" />
+                <XAxis dataKey="name" tickLine={false} />
+                <YAxis tickLine={false} width={48} />
+                <Tooltip />
+                <Bar dataKey="volume" fill="var(--accent)" name="Volume kg" radius={[6, 6, 0, 0]} />
+                <Bar dataKey="series" fill="var(--good)" name="Séries" radius={[6, 6, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        ) : (
+          <div className="chart-empty">
+            <Dumbbell aria-hidden="true" />
+            <p>Crie seu primeiro treino para visualizar o volume.</p>
+          </div>
+        )}
       </Panel>
 
       <Panel title="Prontidão" action="scores atuais">
         <div className="chart-box">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={recoveryData} layout="vertical">
-              <CartesianGrid stroke="#dde3ed" strokeDasharray="3 3" />
+              <CartesianGrid stroke="var(--line)" strokeDasharray="3 3" />
               <XAxis domain={[0, 100]} tickLine={false} type="number" />
               <YAxis dataKey="label" tickLine={false} type="category" width={78} />
               <Tooltip />
-              <Bar dataKey="value" fill="#00a693" name="Score" radius={[0, 6, 6, 0]} />
+              <Bar dataKey="value" fill="var(--good)" name="Score" radius={[0, 6, 6, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -1492,6 +1635,8 @@ function Registration({
           <label>
             Nome
             <input
+              required
+              placeholder=" "
               value={profile.name}
               onChange={(event) => setProfile((current) => ({ ...current, name: event.target.value }))}
             />
@@ -1500,6 +1645,8 @@ function Registration({
             Email
             <input
               type="email"
+              required
+              placeholder=" "
               value={profile.email}
               onChange={(event) => setProfile((current) => ({ ...current, email: event.target.value }))}
             />
@@ -1508,26 +1655,32 @@ function Registration({
             Idade
             <input
               min="12"
+              max="100"
               type="number"
+              required
               value={profile.age}
               onChange={(event) => setProfile((current) => ({ ...current, age: Number(event.target.value) }))}
             />
           </label>
           <label>
-            Peso
+            Peso (kg)
             <input
               min="30"
+              max="300"
               step="0.1"
               type="number"
+              required
               value={profile.weight}
               onChange={(event) => setProfile((current) => ({ ...current, weight: Number(event.target.value) }))}
             />
           </label>
           <label>
-            Altura
+            Altura (cm)
             <input
               min="120"
+              max="230"
               type="number"
+              required
               value={profile.height}
               onChange={(event) => setProfile((current) => ({ ...current, height: Number(event.target.value) }))}
             />
@@ -1579,6 +1732,7 @@ function Registration({
           <label className="wide">
             Restrições
             <textarea
+              placeholder="Descreva suas restrições médicas ou físicas"
               value={profile.restrictions}
               onChange={(event) => setProfile((current) => ({ ...current, restrictions: event.target.value }))}
             />
@@ -1586,6 +1740,7 @@ function Registration({
           <label className="wide">
             Experiência
             <textarea
+              placeholder="Descreva sua experiência com exercícios"
               value={profile.experience}
               onChange={(event) => setProfile((current) => ({ ...current, experience: event.target.value }))}
             />
@@ -1639,11 +1794,13 @@ function Registration({
 function Assessments({
   assessmentForm,
   assessments,
+  filter,
   isSaving,
   onAdd,
   onDelete,
   savingAction,
   setAssessmentForm,
+  setFilter,
 }: {
   assessmentForm: {
     weight: number
@@ -1656,11 +1813,13 @@ function Assessments({
     restingHr: number
   }
   assessments: Assessment[]
+  filter: string
   isSaving: boolean
   onAdd: () => Promise<void>
-  onDelete: (id: string) => Promise<void>
+  onDelete: (id: string) => void
   savingAction: string
   setAssessmentForm: React.Dispatch<React.SetStateAction<typeof assessmentForm>>
+  setFilter: (value: string) => void
 }) {
   return (
     <div className="module-grid">
@@ -1682,6 +1841,8 @@ function Assessments({
                 <input
                   step="0.1"
                   type="number"
+                  required
+                  min="0"
                   value={assessmentForm[field as keyof typeof assessmentForm]}
                   onChange={(event) =>
                     setAssessmentForm((current) => ({
@@ -1702,30 +1863,51 @@ function Assessments({
       </Panel>
 
       <Panel title="Linha do Tempo">
-        <div className="assessment-list">
-          {assessments.map((assessment) => (
-            <article key={assessment.id}>
-              <span>{new Date(`${assessment.date}T00:00:00`).toLocaleDateString('pt-BR')}</span>
-              <strong>{assessment.weight} kg</strong>
-              <small>
-                {assessment.bodyFat}% gordura · VO2 {assessment.vo2} · FC {assessment.restingHr}
-              </small>
-              <button
-                className="danger-action"
-                disabled={savingAction === `assessment-${assessment.id}`}
-                type="button"
-                onClick={() => void onDelete(assessment.id)}
-              >
-                Excluir
-              </button>
-              <div className="mini-bars">
-                <i style={{ height: `${assessment.muscleMass * 1.6}px` }} />
-                <i style={{ height: `${assessment.vo2 * 1.5}px` }} />
-                <i style={{ height: `${100 - assessment.bodyFat * 2}px` }} />
-              </div>
-            </article>
-          ))}
+        <div className="filter-bar">
+          <input
+            type="month"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            placeholder="Filtrar por mês"
+          />
+          {filter ? (
+            <button className="secondary-action" type="button" onClick={() => setFilter('')}>
+              Limpar
+            </button>
+          ) : null}
         </div>
+        {assessments.length > 0 ? (
+          <div className="assessment-list">
+            {assessments.map((assessment) => (
+              <article key={assessment.id}>
+                <span>{new Date(`${assessment.date}T00:00:00`).toLocaleDateString('pt-BR')}</span>
+                <strong>{assessment.weight} kg</strong>
+                <small>
+                  {assessment.bodyFat}% gordura · VO2 {assessment.vo2} · FC {assessment.restingHr}
+                </small>
+                <button
+                  className="danger-action"
+                  disabled={savingAction === `assessment-${assessment.id}`}
+                  type="button"
+                  onClick={() => onDelete(assessment.id)}
+                >
+                  Excluir
+                </button>
+                <div className="mini-bars">
+                  <i style={{ height: `${assessment.muscleMass * 1.6}px` }} />
+                  <i style={{ height: `${assessment.vo2 * 1.5}px` }} />
+                  <i style={{ height: `${100 - assessment.bodyFat * 2}px` }} />
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <EmptyState
+            icon={HeartPulse}
+            title="Nenhuma avaliação encontrada"
+            description={filter ? 'Nenhuma avaliação neste período. Tente outro filtro.' : 'Registre sua primeira avaliação física para acompanhar a evolução.'}
+          />
+        )}
       </Panel>
 
       <Panel title="Comparação de Fotos">
@@ -1750,22 +1932,26 @@ function Strength({
   onSaveWorkout,
   profile,
   restSeconds,
+  restTotal,
   savingAction,
   setCompletedSets,
   setRestSeconds,
+  setRestTotal,
   updateWorkoutLoad,
   workouts,
 }: {
   completedSets: Record<string, boolean>
   onCreateWorkout: (workout: WorkoutDay) => Promise<void>
-  onDeleteWorkout: (id: string) => Promise<void>
+  onDeleteWorkout: (id: string) => void
   onSaveExecution: (workout: WorkoutDay) => Promise<void>
   onSaveWorkout: (workout: WorkoutDay) => Promise<void>
   profile: Profile
   restSeconds: number
+  restTotal: number
   savingAction: string
   setCompletedSets: React.Dispatch<React.SetStateAction<Record<string, boolean>>>
   setRestSeconds: React.Dispatch<React.SetStateAction<number>>
+  setRestTotal: React.Dispatch<React.SetStateAction<number>>
   updateWorkoutLoad: (workoutId: string, exerciseId: string, load: number) => void
   workouts: WorkoutDay[]
 }) {
@@ -1810,6 +1996,8 @@ function Strength({
           <label>
             Nome
             <input
+              required
+              placeholder=" "
               value={draft.name}
               onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
             />
@@ -1828,6 +2016,8 @@ function Strength({
           <label>
             Foco
             <input
+              required
+              placeholder=" "
               value={draft.focus}
               onChange={(event) => setDraft((current) => ({ ...current, focus: event.target.value }))}
             />
@@ -1840,6 +2030,8 @@ function Strength({
               <label>
                 Exercício
                 <input
+                  required
+                  placeholder=" "
                   value={exercise.name}
                   onChange={(event) => updateDraftExercise(index, { name: event.target.value })}
                 />
@@ -1847,6 +2039,8 @@ function Strength({
               <label>
                 Músculo alvo
                 <input
+                  required
+                  placeholder=" "
                   value={exercise.target}
                   onChange={(event) => updateDraftExercise(index, { target: event.target.value })}
                 />
@@ -1854,6 +2048,8 @@ function Strength({
               <label>
                 Equipamento
                 <input
+                  required
+                  placeholder=" "
                   value={exercise.equipment}
                   onChange={(event) => updateDraftExercise(index, { equipment: event.target.value })}
                 />
@@ -1862,7 +2058,9 @@ function Strength({
                 Séries
                 <input
                   min="1"
+                  max="12"
                   type="number"
+                  required
                   value={exercise.sets}
                   onChange={(event) => updateDraftExercise(index, { sets: Number(event.target.value) })}
                 />
@@ -1870,15 +2068,19 @@ function Strength({
               <label>
                 Reps
                 <input
+                  required
+                  placeholder=" "
                   value={exercise.reps}
                   onChange={(event) => updateDraftExercise(index, { reps: event.target.value })}
                 />
               </label>
               <label>
-                Descanso
+                Descanso (s)
                 <input
                   min="0"
+                  max="600"
                   type="number"
+                  required
                   value={exercise.rest}
                   onChange={(event) => updateDraftExercise(index, { rest: Number(event.target.value) })}
                 />
@@ -1889,6 +2091,7 @@ function Strength({
                   max="10"
                   min="1"
                   type="number"
+                  required
                   value={exercise.rpe}
                   onChange={(event) => updateDraftExercise(index, { rpe: Number(event.target.value) })}
                 />
@@ -1896,6 +2099,8 @@ function Strength({
               <label className="wide">
                 Instrução
                 <textarea
+                  required
+                  placeholder="Descreva a execução do exercício"
                   value={exercise.instruction}
                   onChange={(event) => updateDraftExercise(index, { instruction: event.target.value })}
                 />
@@ -1940,108 +2145,124 @@ function Strength({
         </div>
       </Panel>
 
-      <Panel title="Execução de Treino" action={restSeconds ? `${restSeconds}s descanso` : 'Pronto'}>
-        <div className="workout-stack">
-          {workouts.map((workout) => (
-            <article className="workout-block" key={workout.id}>
-              <div className="workout-heading">
-                <div>
-                  <span>{workout.split}</span>
-                  <strong>{workout.name}</strong>
-                  <small>{workout.focus}</small>
-                </div>
-                <Timer aria-hidden="true" />
-              </div>
+      <Panel title="Execução de Treino" action={restSeconds ? undefined : 'Pronto'}>
+        {restSeconds > 0 ? (
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
+            <RestTimer seconds={restSeconds} total={restTotal} />
+          </div>
+        ) : null}
 
-              {workout.exercises.map((exercise) => (
-                <div className="exercise-row" key={exercise.id}>
-                  <div className="exercise-main">
-                    <strong>{exercise.name}</strong>
-                    <span>
-                      {exercise.target} · {exercise.equipment} · RPE {exercise.rpe}
-                    </span>
-                    <small>{exercise.instruction}</small>
+        {workouts.length > 0 ? (
+          <div className="workout-stack">
+            {workouts.map((workout) => (
+              <article className="workout-block" key={workout.id}>
+                <div className="workout-heading">
+                  <div>
+                    <span>{workout.split}</span>
+                    <strong>{workout.name}</strong>
+                    <small>{workout.focus}</small>
                   </div>
-                  <label className="load-input">
-                    Carga
-                    <input
-                      type="number"
-                      value={exercise.load}
-                      onChange={(event) => updateWorkoutLoad(workout.id, exercise.id, Number(event.target.value))}
-                    />
-                  </label>
-                  <div className="set-buttons" aria-label={`Séries de ${exercise.name}`}>
-                    {Array.from({ length: exercise.sets }, (_, index) => {
-                      const setKey = `${workout.id}-${exercise.id}-${index}`
-                      const done = completedSets[setKey]
-                      return (
-                        <button
-                          key={setKey}
-                          className={done ? 'done' : ''}
-                          type="button"
-                          title={`Série ${index + 1}`}
-                          onClick={() => {
-                            setCompletedSets((current) => ({ ...current, [setKey]: !current[setKey] }))
-                            setRestSeconds(exercise.rest)
-                          }}
-                        >
-                          {done ? <Check aria-hidden="true" /> : index + 1}
-                        </button>
-                      )
-                    })}
-                  </div>
-                  <div className="progression">
-                    <Sparkles aria-hidden="true" />
-                    <span>{getProgression(exercise, profile)}</span>
-                  </div>
+                  <Timer aria-hidden="true" />
                 </div>
-              ))}
 
-              <div className="workout-actions">
-                <button
-                  className="secondary-action"
-                  disabled={savingAction === `workout-${workout.id}`}
-                  type="button"
-                  onClick={() => void onSaveWorkout(workout)}
-                >
-                  {savingAction === `workout-${workout.id}` ? (
-                    <Loader2 aria-hidden="true" />
-                  ) : (
-                    <Check aria-hidden="true" />
-                  )}
-                  Salvar cargas
-                </button>
-                <button
-                  className="primary-action"
-                  disabled={savingAction === `execution-${workout.id}`}
-                  type="button"
-                  onClick={() => void onSaveExecution(workout)}
-                >
-                  {savingAction === `execution-${workout.id}` ? (
-                    <Loader2 aria-hidden="true" />
-                  ) : (
-                    <Plus aria-hidden="true" />
-                  )}
-                  Registrar execução
-                </button>
-                <button className="secondary-action" type="button" onClick={() => setDraft(workout)}>
-                  Editar treino
-                </button>
-                <button className="secondary-action" type="button" onClick={() => duplicateWorkout(workout)}>
-                  Duplicar
-                </button>
-                <button
-                  className="danger-action"
-                  disabled={savingAction === `workout-delete-${workout.id}`}
-                  type="button"
-                  onClick={() => void onDeleteWorkout(workout.id)}
-                >
-                  Excluir treino
-                </button>
-              </div>
-            </article>
-          ))}
-        </div>
+                {workout.exercises.map((exercise) => (
+                  <div className="exercise-row" key={exercise.id}>
+                    <div className="exercise-main">
+                      <strong>{exercise.name}</strong>
+                      <span>
+                        {exercise.target} · {exercise.equipment} · RPE {exercise.rpe}
+                      </span>
+                      <small>{exercise.instruction}</small>
+                    </div>
+                    <label className="load-input">
+                      Carga
+                      <input
+                        type="number"
+                        value={exercise.load}
+                        onChange={(event) => updateWorkoutLoad(workout.id, exercise.id, Number(event.target.value))}
+                      />
+                    </label>
+                    <div className="set-buttons" role="group" aria-label={`Séries de ${exercise.name}`}>
+                      {Array.from({ length: exercise.sets }, (_, index) => {
+                        const setKey = `${workout.id}-${exercise.id}-${index}`
+                        const done = completedSets[setKey]
+                        return (
+                          <button
+                            key={setKey}
+                            className={done ? 'done' : ''}
+                            type="button"
+                            title={`Série ${index + 1}`}
+                            aria-pressed={done ?? false}
+                            onClick={() => {
+                              setCompletedSets((current) => ({ ...current, [setKey]: !current[setKey] }))
+                              setRestSeconds(exercise.rest)
+                              setRestTotal(exercise.rest)
+                            }}
+                          >
+                            {done ? <Check aria-hidden="true" /> : index + 1}
+                          </button>
+                        )
+                      })}
+                    </div>
+                    <div className="progression">
+                      <Sparkles aria-hidden="true" />
+                      <span>{getProgression(exercise, profile)}</span>
+                    </div>
+                  </div>
+                ))}
+
+                <div className="workout-actions">
+                  <button
+                    className="secondary-action"
+                    disabled={savingAction === `workout-${workout.id}`}
+                    type="button"
+                    onClick={() => void onSaveWorkout(workout)}
+                  >
+                    {savingAction === `workout-${workout.id}` ? (
+                      <Loader2 aria-hidden="true" />
+                    ) : (
+                      <Check aria-hidden="true" />
+                    )}
+                    Salvar cargas
+                  </button>
+                  <button
+                    className="primary-action"
+                    disabled={savingAction === `execution-${workout.id}`}
+                    type="button"
+                    onClick={() => void onSaveExecution(workout)}
+                  >
+                    {savingAction === `execution-${workout.id}` ? (
+                      <Loader2 aria-hidden="true" />
+                    ) : (
+                      <Plus aria-hidden="true" />
+                    )}
+                    Registrar execução
+                  </button>
+                  <button className="secondary-action" type="button" onClick={() => setDraft(workout)}>
+                    Editar treino
+                  </button>
+                  <button className="secondary-action" type="button" onClick={() => duplicateWorkout(workout)}>
+                    Duplicar
+                  </button>
+                  <button
+                    className="danger-action"
+                    disabled={savingAction === `workout-delete-${workout.id}`}
+                    type="button"
+                    onClick={() => onDeleteWorkout(workout.id)}
+                  >
+                    Excluir treino
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <EmptyState
+            icon={Dumbbell}
+            title="Nenhum treino criado"
+            description="Crie seu primeiro treino no formulário acima para começar a registrar execuções."
+          />
+        )}
       </Panel>
 
       <Panel title="Biblioteca de Exercícios">
@@ -2063,6 +2284,8 @@ function Strength({
 }
 
 function Running({
+  estimatedMaxHr,
+  filter,
   isSaving,
   metrics,
   onAdd,
@@ -2070,12 +2293,15 @@ function Running({
   runForm,
   runs,
   savingAction,
+  setFilter,
   setRunForm,
 }: {
+  estimatedMaxHr: number
+  filter: RunType | ''
   isSaving: boolean
   metrics: Metrics
   onAdd: () => Promise<void>
-  onDelete: (id: string) => Promise<void>
+  onDelete: (id: string) => void
   runForm: {
     type: RunType
     distance: number
@@ -2088,6 +2314,7 @@ function Running({
   }
   runs: RunEntry[]
   savingAction: string
+  setFilter: (value: RunType | '') => void
   setRunForm: React.Dispatch<React.SetStateAction<typeof runForm>>
 }) {
   return (
@@ -2128,6 +2355,7 @@ function Running({
                   min={field === 'effort' ? 1 : 0}
                   step={field === 'distance' ? 0.1 : 1}
                   type="number"
+                  required
                   value={runForm[field as keyof typeof runForm]}
                   onChange={(event) =>
                     setRunForm((current) => ({
@@ -2148,28 +2376,47 @@ function Running({
       </Panel>
 
       <Panel title="Histórico e Zonas">
-        <div className="run-list">
-          {runs.map((run) => (
-            <article key={run.id}>
-              <div>
-                <strong>{run.type}</strong>
-                <span>{new Date(`${run.date}T00:00:00`).toLocaleDateString('pt-BR')}</span>
-              </div>
-              <small>{run.distance} km</small>
-              <small>{run.pace}/km</small>
-              <small>{run.avgHr}-{run.maxHr} bpm</small>
-              <div className="zone-pill">Z{Math.min(5, Math.max(1, Math.round(run.avgHr / 35)))}</div>
-              <button
-                className="danger-action"
-                disabled={savingAction === `run-${run.id}`}
-                type="button"
-                onClick={() => void onDelete(run.id)}
-              >
-                Excluir
-              </button>
-            </article>
-          ))}
+        <div className="filter-bar">
+          <select value={filter} onChange={(e) => setFilter(e.target.value as RunType | '')}>
+            <option value="">Todos os tipos</option>
+            {runTypes.map((type) => (
+              <option key={type} value={type}>{type}</option>
+            ))}
+          </select>
         </div>
+        {runs.length > 0 ? (
+          <div className="run-list">
+            {runs.map((run) => {
+              const zone = getHrZone(run.avgHr, run.maxHr || estimatedMaxHr)
+              return (
+                <article key={run.id}>
+                  <div>
+                    <strong>{run.type}</strong>
+                    <span>{new Date(`${run.date}T00:00:00`).toLocaleDateString('pt-BR')}</span>
+                  </div>
+                  <small>{run.distance} km</small>
+                  <small>{run.pace}/km</small>
+                  <small>{run.avgHr}-{run.maxHr} bpm</small>
+                  <div className={`zone-pill z${zone}`}>Z{zone}</div>
+                  <button
+                    className="danger-action"
+                    disabled={savingAction === `run-${run.id}`}
+                    type="button"
+                    onClick={() => onDelete(run.id)}
+                  >
+                    Excluir
+                  </button>
+                </article>
+              )
+            })}
+          </div>
+        ) : (
+          <EmptyState
+            icon={Route}
+            title={filter ? 'Nenhuma corrida encontrada' : 'Nenhuma corrida registrada'}
+            description={filter ? 'Nenhuma corrida deste tipo. Tente outro filtro.' : 'Registre sua primeira corrida para acompanhar a evolução.'}
+          />
+        )}
       </Panel>
 
       <Panel title="Integrações Futuras">
@@ -2276,27 +2523,37 @@ function Periodization() {
 function Social() {
   return (
     <div className="module-grid">
-      <section className="stats-grid">
-        <Stat detail="Streak diário" icon={Flame} label="Sequência" tone="good" value="12 dias" />
-        <Stat detail="Gamificação" icon={Award} label="XP" value="7.420" />
-        <Stat detail="Ranking do grupo" icon={Medal} label="Posição" value="#3" />
-      </section>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <span className="coming-soon-badge">
+          <Construction aria-hidden="true" style={{ width: 14, height: 14 }} />
+          Em breve
+        </span>
+        <span style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>Este módulo está em desenvolvimento.</span>
+      </div>
 
-      <Panel title="Comunidade">
-        <div className="social-feed">
-          {[
-            ['Equipe 21K', 'Desafio semanal: 32 km com 2 sessões de força.'],
-            ['Assessoria Evo', 'Ranking atualizado por aderência e evolução.'],
-            ['Marina Costa', 'PR de 5 km estimado em 25:40.'],
-          ].map(([author, content]) => (
-            <article key={content}>
-              <strong>{author}</strong>
-              <span>{content}</span>
-              <button type="button">Curtir</button>
-            </article>
-          ))}
-        </div>
-      </Panel>
+      <div className="coming-soon-overlay">
+        <section className="stats-grid">
+          <Stat detail="Streak diário" icon={Flame} label="Sequência" tone="good" value="12 dias" />
+          <Stat detail="Gamificação" icon={Award} label="XP" value="7.420" />
+          <Stat detail="Ranking do grupo" icon={Medal} label="Posição" value="#3" />
+        </section>
+
+        <Panel title="Comunidade">
+          <div className="social-feed">
+            {[
+              ['Equipe 21K', 'Desafio semanal: 32 km com 2 sessões de força.'],
+              ['Assessoria Evo', 'Ranking atualizado por aderência e evolução.'],
+              ['Marina Costa', 'PR de 5 km estimado em 25:40.'],
+            ].map(([author, content]) => (
+              <article key={content}>
+                <strong>{author}</strong>
+                <span>{content}</span>
+                <button type="button">Curtir</button>
+              </article>
+            ))}
+          </div>
+        </Panel>
+      </div>
     </div>
   )
 }
@@ -2304,37 +2561,47 @@ function Social() {
 function Admin() {
   return (
     <div className="module-grid">
-      <Panel title="Administração">
-        <div className="admin-grid">
-          {[
-            ['Usuários', '1.284 ativos', Users],
-            ['Planos', 'Free, Premium, Assessoria', Lock],
-            ['Segurança', 'JWT, OAuth2, criptografia', ShieldCheck],
-            ['Analytics', 'Retenção, aderência, evolução', BarChart3],
-          ].map(([title, detail, Icon]) => (
-            <article key={title as string}>
-              <Icon aria-hidden="true" />
-              <strong>{title as string}</strong>
-              <span>{detail as string}</span>
-            </article>
-          ))}
-        </div>
-      </Panel>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <span className="coming-soon-badge">
+          <Construction aria-hidden="true" style={{ width: 14, height: 14 }} />
+          Em breve
+        </span>
+        <span style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>Este módulo está em desenvolvimento.</span>
+      </div>
 
-      <Panel title="Roadmap">
-        <div className="roadmap">
-          {[
-            ['Fase 1', 'Cadastro, treinos, execução, corrida básica, dashboard.'],
-            ['Fase 2', 'IA básica, progressão automática, gráficos, periodização.'],
-            ['Fase 3', 'Wearables, IA avançada, coach virtual, comunidade.'],
-          ].map(([phase, detail]) => (
-            <article key={phase}>
-              <strong>{phase}</strong>
-              <span>{detail}</span>
-            </article>
-          ))}
-        </div>
-      </Panel>
+      <div className="coming-soon-overlay">
+        <Panel title="Administração">
+          <div className="admin-grid">
+            {[
+              ['Usuários', '1.284 ativos', Users],
+              ['Planos', 'Free, Premium, Assessoria', Lock],
+              ['Segurança', 'JWT, OAuth2, criptografia', ShieldCheck],
+              ['Analytics', 'Retenção, aderência, evolução', BarChart3],
+            ].map(([title, detail, Icon]) => (
+              <article key={title as string}>
+                <Icon aria-hidden="true" />
+                <strong>{title as string}</strong>
+                <span>{detail as string}</span>
+              </article>
+            ))}
+          </div>
+        </Panel>
+
+        <Panel title="Roadmap">
+          <div className="roadmap">
+            {[
+              ['Fase 1', 'Cadastro, treinos, execução, corrida básica, dashboard.'],
+              ['Fase 2', 'IA básica, progressão automática, gráficos, periodização.'],
+              ['Fase 3', 'Wearables, IA avançada, coach virtual, comunidade.'],
+            ].map(([phase, detail]) => (
+              <article key={phase}>
+                <strong>{phase}</strong>
+                <span>{detail}</span>
+              </article>
+            ))}
+          </div>
+        </Panel>
+      </div>
     </div>
   )
 }
