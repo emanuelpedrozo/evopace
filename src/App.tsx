@@ -2120,6 +2120,17 @@ function Strength({
                 />
               </label>
               <label>
+                Carga base (kg)
+                <input
+                  min="0"
+                  step="0.5"
+                  type="number"
+                  required
+                  value={exercise.load}
+                  onChange={(event) => updateDraftExercise(index, { load: Number(event.target.value) })}
+                />
+              </label>
+              <label>
                 Descanso (s)
                 <input
                   min="0"
@@ -2366,7 +2377,7 @@ function Strength({
           <EmptyState
             icon={Dumbbell}
             title="Nenhum treino criado"
-            description="Crie seu primeiro treino no formulário acima para começar a registrar execuções."
+            description="Crie ou salve um treino acima para liberar o registro de cargas do dia, repetições, RIR, RPE e falha por série."
           />
         )}
       </Panel>
