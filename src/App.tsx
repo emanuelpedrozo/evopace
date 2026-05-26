@@ -464,6 +464,21 @@ type DailySetLog = {
   failed: boolean
 }
 
+type WorkoutPlanDayDraft = {
+  code: string
+  name: string
+  focus: string
+  exercises: WorkoutExercise[]
+}
+
+type WorkoutPlanDraft = {
+  id: string
+  name: string
+  split: SplitType
+  goal: string
+  days: WorkoutPlanDayDraft[]
+}
+
 function getDefaultSetLog(exercise: WorkoutExercise): DailySetLog {
   return {
     completed: false,
@@ -472,6 +487,58 @@ function getDefaultSetLog(exercise: WorkoutExercise): DailySetLog {
     rir: Math.max(0, Math.min(10, 10 - exercise.rpe)),
     rpe: exercise.rpe,
     failed: false,
+  }
+}
+
+function getSplitDayCodes(split: SplitType) {
+  if (split === 'ABC') return ['A', 'B', 'C']
+  if (split === 'ABCD') return ['A', 'B', 'C', 'D']
+  if (split === 'Upper/lower') return ['Upper', 'Lower']
+  if (split === 'Push/Pull/Legs') return ['Push', 'Pull', 'Legs']
+  return ['Full']
+}
+
+function getDefaultDayFocus(code: string) {
+  const focusByCode: Record<string, string> = {
+    A: 'Peito, ombro e tríceps',
+    B: 'Costas e bíceps',
+    C: 'Pernas e core',
+    D: 'Complementar',
+    Upper: 'Membros superiores',
+    Lower: 'Membros inferiores',
+    Push: 'Empurrar',
+    Pull: 'Puxar',
+    Legs: 'Pernas',
+    Full: 'Corpo inteiro',
+  }
+
+  return focusByCode[code] ?? code
+}
+
+function createDraftPlan(split: SplitType = 'ABC'): WorkoutPlanDraft {
+  const timestamp = Date.now()
+
+  return {
+    id: `draft-plan-${timestamp}`,
+    name: split === 'ABC' ? 'Ficha ABC - Hipertrofia' : `Ficha ${split}`,
+    split,
+    goal: 'hipertrofia',
+    days: getSplitDayCodes(split).map((code, index) => ({
+      code,
+      name: `Treino ${code}`,
+      focus: getDefaultDayFocus(code),
+      exercises: [createDraftExercise(exerciseLibrary[index % exerciseLibrary.length])],
+    })),
+  }
+}
+
+function planDayToWorkout(plan: WorkoutPlanDraft, day: WorkoutPlanDayDraft): WorkoutDay {
+  return {
+    id: `draft-workout-${Date.now()}-${day.code}`,
+    name: `${plan.name} · ${day.name}`,
+    split: plan.split,
+    focus: day.focus,
+    exercises: day.exercises,
   }
 }
 
@@ -592,16 +659,6 @@ function createDraftExercise(source = exerciseLibrary[0]): WorkoutExercise {
     load: 0,
     rest: 90,
     rpe: 7,
-  }
-}
-
-function createDraftWorkout(): WorkoutDay {
-  return {
-    id: `draft-workout-${Date.now()}`,
-    name: 'Novo treino',
-    split: 'Full body',
-    focus: 'Força geral',
-    exercises: [createDraftExercise()],
   }
 }
 
@@ -1190,21 +1247,26 @@ function App() {
     }
   }
 
-  async function createWorkout(workout: WorkoutDay) {
+  async function createWorkoutPlan(plan: WorkoutPlanDraft) {
     if (!authToken) return
 
-    setSavingAction('workout-create')
+    setSavingAction('workout-plan-create')
 
     try {
-      await apiRequest<{ workout: ApiWorkout }>('/workouts', {
-        method: 'POST',
-        token: authToken,
-        body: JSON.stringify(toWorkoutPayload(workout)),
-      })
+      const workoutsToCreate = plan.days.map((day) => planDayToWorkout(plan, day))
+
+      for (const workout of workoutsToCreate) {
+        await apiRequest<{ workout: ApiWorkout }>('/workouts', {
+          method: 'POST',
+          token: authToken,
+          body: JSON.stringify(toWorkoutPayload(workout)),
+        })
+      }
+
       await refreshAuthenticatedData()
-      toast.success('Treino criado no banco.')
+      toast.success('Ficha cadastrada com os treinos da divisão.')
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Falha ao criar treino.')
+      toast.error(error instanceof Error ? error.message : 'Falha ao cadastrar ficha.')
     } finally {
       setSavingAction('')
     }
@@ -1440,7 +1502,7 @@ function App() {
             authToken={authToken ?? ''}
             completedSets={completedSets}
             setLogs={setLogs}
-            onCreateWorkout={createWorkout}
+            onCreateWorkoutPlan={createWorkoutPlan}
             onDeleteWorkout={(id) =>
               requestConfirm('Excluir treino', 'Tem certeza que deseja excluir este treino e todos os seus exercícios?', () => void deleteWorkout(id))
             }
@@ -2056,7 +2118,7 @@ function Assessments({
 function Strength({
   authToken,
   completedSets,
-  onCreateWorkout,
+  onCreateWorkoutPlan,
   onDeleteWorkout,
   onSaveExecution,
   onSaveWorkout,
@@ -2075,7 +2137,7 @@ function Strength({
 }: {
   authToken: string
   completedSets: Record<string, boolean>
-  onCreateWorkout: (workout: WorkoutDay) => Promise<void>
+  onCreateWorkoutPlan: (plan: WorkoutPlanDraft) => Promise<void>
   onDeleteWorkout: (id: string) => void
   onSaveExecution: (workout: WorkoutDay) => Promise<void>
   onSaveWorkout: (workout: WorkoutDay) => Promise<void>
@@ -2092,8 +2154,8 @@ function Strength({
   workoutExecutions: ApiWorkoutExecution[]
   workouts: WorkoutDay[]
 }) {
-  const [draft, setDraft] = useState<WorkoutDay>(() => createDraftWorkout())
-  const isEditing = workouts.some((workout) => workout.id === draft.id)
+  const [planDraft, setPlanDraft] = useState<WorkoutPlanDraft>(() => createDraftPlan('ABC'))
+  const [activePlanDayIndex, setActivePlanDayIndex] = useState(0)
   const [lastExecutions, setLastExecutions] = useState<Record<string, ApiWorkoutExecution>>({})
   const calendarDays = useMemo(() => buildStrengthCalendarDays(), [])
   const [selectedCalendarDay, setSelectedCalendarDay] = useState(() => calendarDays.at(-1) ?? new Date().toISOString().slice(0, 10))
@@ -2107,6 +2169,7 @@ function Strength({
     [workoutExecutions],
   )
   const selectedExecutions = executionsByDay[selectedCalendarDay] ?? []
+  const activePlanDay = planDraft.days[activePlanDayIndex] ?? planDraft.days[0]
 
   useEffect(() => {
     if (!authToken || workouts.length === 0) return
@@ -2122,35 +2185,93 @@ function Strength({
     }
   }, [authToken, workouts])
 
-  function updateDraftExercise(index: number, changes: Partial<WorkoutExercise>) {
-    setDraft((current) => ({
+  function updatePlanSplit(split: SplitType) {
+    setPlanDraft((current) => ({
       ...current,
-      exercises: current.exercises.map((exercise, exerciseIndex) =>
-        exerciseIndex === index ? { ...exercise, ...changes } : exercise,
+      split,
+      name: current.name.startsWith('Ficha ') ? (split === 'ABC' ? 'Ficha ABC - Hipertrofia' : `Ficha ${split}`) : current.name,
+      days: getSplitDayCodes(split).map((code, index) => {
+        const existing = current.days[index]
+
+        return {
+          code,
+          name: existing?.name?.startsWith('Treino ') ? `Treino ${code}` : existing?.name ?? `Treino ${code}`,
+          focus: existing?.focus ?? getDefaultDayFocus(code),
+          exercises: existing?.exercises ?? [createDraftExercise(exerciseLibrary[index % exerciseLibrary.length])],
+        }
+      }),
+    }))
+    setActivePlanDayIndex(0)
+  }
+
+  function updatePlanDay(index: number, changes: Partial<WorkoutPlanDayDraft>) {
+    setPlanDraft((current) => ({
+      ...current,
+      days: current.days.map((day, dayIndex) => (dayIndex === index ? { ...day, ...changes } : day)),
+    }))
+  }
+
+  function updatePlanExercise(dayIndex: number, exerciseIndex: number, changes: Partial<WorkoutExercise>) {
+    setPlanDraft((current) => ({
+      ...current,
+      days: current.days.map((day, currentDayIndex) =>
+        currentDayIndex === dayIndex
+          ? {
+              ...day,
+              exercises: day.exercises.map((exercise, currentExerciseIndex) =>
+                currentExerciseIndex === exerciseIndex ? { ...exercise, ...changes } : exercise,
+              ),
+            }
+          : day,
       ),
     }))
   }
 
-  function removeDraftExercise(index: number) {
-    setDraft((current) => ({
+  function addPlanExercise(dayIndex: number) {
+    setPlanDraft((current) => ({
       ...current,
-      exercises:
-        current.exercises.length > 1
-          ? current.exercises.filter((_, exerciseIndex) => exerciseIndex !== index)
-          : current.exercises,
+      days: current.days.map((day, currentDayIndex) =>
+        currentDayIndex === dayIndex ? { ...day, exercises: [...day.exercises, createDraftExercise()] } : day,
+      ),
     }))
   }
 
-  function duplicateWorkout(workout: WorkoutDay) {
-    setDraft({
-      ...workout,
-      id: `draft-workout-${Date.now()}`,
-      name: `${workout.name} cópia`,
-      exercises: workout.exercises.map((exercise) => ({
-        ...exercise,
-        id: `draft-exercise-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-      })),
+  function removePlanExercise(dayIndex: number, exerciseIndex: number) {
+    setPlanDraft((current) => ({
+      ...current,
+      days: current.days.map((day, currentDayIndex) =>
+        currentDayIndex === dayIndex
+          ? {
+              ...day,
+              exercises:
+                day.exercises.length > 1
+                  ? day.exercises.filter((_, currentExerciseIndex) => currentExerciseIndex !== exerciseIndex)
+                  : day.exercises,
+            }
+          : day,
+      ),
+    }))
+  }
+
+  function loadWorkoutAsPlan(workout: WorkoutDay) {
+    setPlanDraft({
+      id: `draft-plan-${Date.now()}`,
+      name: workout.name,
+      split: workout.split,
+      goal: workout.focus,
+      days: [
+        {
+          code: 'A',
+          name: workout.name,
+          focus: workout.focus,
+          exercises: workout.exercises.map((exercise) => ({
+            ...exercise,
+            id: `draft-exercise-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+          })),
+        },
+      ],
     })
+    setActivePlanDayIndex(0)
   }
 
   function updateSetLog(setKey: string, exercise: WorkoutExercise, changes: Partial<DailySetLog>) {
@@ -2181,22 +2302,22 @@ function Strength({
 
   return (
     <div className="module-grid">
-      <Panel title={isEditing ? 'Editar Treino' : 'Criar Treino'} action={isEditing ? 'Modo edição' : 'Novo'}>
+      <Panel title="Ficha de Treino" action={`${planDraft.split} · ${planDraft.days.length} dias`}>
         <div className="builder-grid">
           <label>
-            Nome
+            Nome da ficha
             <input
               required
               placeholder=" "
-              value={draft.name}
-              onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
+              value={planDraft.name}
+              onChange={(event) => setPlanDraft((current) => ({ ...current, name: event.target.value }))}
             />
           </label>
           <label>
             Divisão
             <select
-              value={draft.split}
-              onChange={(event) => setDraft((current) => ({ ...current, split: event.target.value as SplitType }))}
+              value={planDraft.split}
+              onChange={(event) => updatePlanSplit(event.target.value as SplitType)}
             >
               {splitTypes.map((split) => (
                 <option key={split}>{split}</option>
@@ -2204,26 +2325,72 @@ function Strength({
             </select>
           </label>
           <label>
-            Foco
+            Objetivo
             <input
               required
               placeholder=" "
-              value={draft.focus}
-              onChange={(event) => setDraft((current) => ({ ...current, focus: event.target.value }))}
+              value={planDraft.goal}
+              onChange={(event) => setPlanDraft((current) => ({ ...current, goal: event.target.value }))}
             />
           </label>
         </div>
 
-        <div className="exercise-editor-list">
-          {draft.exercises.map((exercise, index) => (
-            <article className="exercise-editor" key={exercise.id}>
+        <div className="plan-day-tabs" role="tablist" aria-label="Dias da ficha">
+          {planDraft.days.map((day, index) => (
+            <button
+              className={index === activePlanDayIndex ? 'active' : ''}
+              key={day.code}
+              type="button"
+              aria-selected={index === activePlanDayIndex}
+              onClick={() => setActivePlanDayIndex(index)}
+            >
+              {day.name}
+            </button>
+          ))}
+        </div>
+
+        {activePlanDay ? (
+          <div className="plan-day-editor">
+            <div className="builder-grid compact">
+              <label>
+                Nome do dia
+                <input
+                  required
+                  placeholder=" "
+                  value={activePlanDay.name}
+                  onChange={(event) => updatePlanDay(activePlanDayIndex, { name: event.target.value })}
+                />
+              </label>
+              <label>
+                Código
+                <input
+                  required
+                  placeholder=" "
+                  value={activePlanDay.code}
+                  onChange={(event) => updatePlanDay(activePlanDayIndex, { code: event.target.value })}
+                />
+              </label>
+              <label>
+                Foco muscular
+                <input
+                  required
+                  placeholder=" "
+                  value={activePlanDay.focus}
+                  onChange={(event) => updatePlanDay(activePlanDayIndex, { focus: event.target.value })}
+                />
+              </label>
+            </div>
+
+            <div className="exercise-editor-list">
+              {activePlanDay.exercises.map((exercise, index) => (
+                <article className="exercise-editor" key={exercise.id}>
               <label>
                 Exercício
                 <input
                   required
                   placeholder=" "
                   value={exercise.name}
-                  onChange={(event) => updateDraftExercise(index, { name: event.target.value })}
+                  onChange={(event) => updatePlanExercise(activePlanDayIndex, index, { name: event.target.value })}
                 />
               </label>
               <label>
@@ -2232,7 +2399,7 @@ function Strength({
                   required
                   placeholder=" "
                   value={exercise.target}
-                  onChange={(event) => updateDraftExercise(index, { target: event.target.value })}
+                  onChange={(event) => updatePlanExercise(activePlanDayIndex, index, { target: event.target.value })}
                 />
               </label>
               <label>
@@ -2241,7 +2408,7 @@ function Strength({
                   required
                   placeholder=" "
                   value={exercise.equipment}
-                  onChange={(event) => updateDraftExercise(index, { equipment: event.target.value })}
+                  onChange={(event) => updatePlanExercise(activePlanDayIndex, index, { equipment: event.target.value })}
                 />
               </label>
               <label>
@@ -2252,7 +2419,7 @@ function Strength({
                   type="number"
                   required
                   value={exercise.sets}
-                  onChange={(event) => updateDraftExercise(index, { sets: Number(event.target.value) })}
+                  onChange={(event) => updatePlanExercise(activePlanDayIndex, index, { sets: Number(event.target.value) })}
                 />
               </label>
               <label>
@@ -2261,7 +2428,7 @@ function Strength({
                   required
                   placeholder=" "
                   value={exercise.reps}
-                  onChange={(event) => updateDraftExercise(index, { reps: event.target.value })}
+                  onChange={(event) => updatePlanExercise(activePlanDayIndex, index, { reps: event.target.value })}
                 />
               </label>
               <label>
@@ -2272,7 +2439,7 @@ function Strength({
                   type="number"
                   required
                   value={exercise.load}
-                  onChange={(event) => updateDraftExercise(index, { load: Number(event.target.value) })}
+                  onChange={(event) => updatePlanExercise(activePlanDayIndex, index, { load: Number(event.target.value) })}
                 />
               </label>
               <label>
@@ -2283,7 +2450,7 @@ function Strength({
                   type="number"
                   required
                   value={exercise.rest}
-                  onChange={(event) => updateDraftExercise(index, { rest: Number(event.target.value) })}
+                  onChange={(event) => updatePlanExercise(activePlanDayIndex, index, { rest: Number(event.target.value) })}
                 />
               </label>
               <label>
@@ -2294,7 +2461,7 @@ function Strength({
                   type="number"
                   required
                   value={exercise.rpe}
-                  onChange={(event) => updateDraftExercise(index, { rpe: Number(event.target.value) })}
+                  onChange={(event) => updatePlanExercise(activePlanDayIndex, index, { rpe: Number(event.target.value) })}
                 />
               </label>
               <label className="wide">
@@ -2303,45 +2470,42 @@ function Strength({
                   required
                   placeholder="Descreva a execução do exercício"
                   value={exercise.instruction}
-                  onChange={(event) => updateDraftExercise(index, { instruction: event.target.value })}
+                  onChange={(event) => updatePlanExercise(activePlanDayIndex, index, { instruction: event.target.value })}
                 />
               </label>
-              <button className="danger-action" type="button" onClick={() => removeDraftExercise(index)}>
+              <button className="danger-action" type="button" onClick={() => removePlanExercise(activePlanDayIndex, index)}>
                 Excluir exercício
               </button>
             </article>
-          ))}
-        </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
 
         <div className="workout-actions">
           <button
             className="secondary-action"
             type="button"
-            onClick={() =>
-              setDraft((current) => ({
-                ...current,
-                exercises: [...current.exercises, createDraftExercise()],
-              }))
-            }
+            onClick={() => addPlanExercise(activePlanDayIndex)}
           >
             <Plus aria-hidden="true" />
-            Adicionar exercício
+            Adicionar exercício no dia
           </button>
-          <button className="secondary-action" type="button" onClick={() => setDraft(createDraftWorkout())}>
-            Novo treino
+          <button className="secondary-action" type="button" onClick={() => setPlanDraft(createDraftPlan(planDraft.split))}>
+            Nova ficha
           </button>
           <button
             className="primary-action"
-            disabled={savingAction === 'workout-create' || savingAction === `workout-${draft.id}`}
+            disabled={savingAction === 'workout-plan-create'}
             type="button"
-            onClick={() => void (isEditing ? onSaveWorkout(draft) : onCreateWorkout(draft))}
+            onClick={() => void onCreateWorkoutPlan(planDraft)}
           >
-            {savingAction === 'workout-create' || savingAction === `workout-${draft.id}` ? (
+            {savingAction === 'workout-plan-create' ? (
               <Loader2 aria-hidden="true" />
             ) : (
               <Check aria-hidden="true" />
             )}
-            {isEditing ? 'Salvar treino' : 'Criar treino'}
+            Cadastrar ficha
           </button>
         </div>
       </Panel>
@@ -2661,11 +2825,8 @@ function Strength({
                     )}
                     Registrar execução
                   </button>
-                  <button className="secondary-action" type="button" onClick={() => setDraft(workout)}>
-                    Editar treino
-                  </button>
-                  <button className="secondary-action" type="button" onClick={() => duplicateWorkout(workout)}>
-                    Duplicar
+                  <button className="secondary-action" type="button" onClick={() => loadWorkoutAsPlan(workout)}>
+                    Usar como ficha
                   </button>
                   <button
                     className="danger-action"

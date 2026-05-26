@@ -812,6 +812,41 @@ input[type='range'] {
   margin-bottom: 14px;
 }
 
+.builder-grid.compact {
+  grid-template-columns: minmax(180px, 1fr) 120px minmax(220px, 1.2fr);
+}
+
+.plan-day-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.plan-day-tabs button {
+  min-height: 38px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+  font-weight: 800;
+  transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.plan-day-tabs button:hover,
+.plan-day-tabs button.active {
+  border-color: var(--accent);
+  background: var(--tint);
+  color: var(--accent);
+}
+
+.plan-day-editor {
+  display: grid;
+  gap: 12px;
+}
+
 .exercise-editor-list {
   display: grid;
   gap: 12px;
@@ -2062,6 +2097,7 @@ input[type='range'] {
   .form-grid,
   .form-grid.compact,
   .builder-grid,
+  .builder-grid.compact,
   .exercise-editor,
   .chart-grid,
   .library-grid,
