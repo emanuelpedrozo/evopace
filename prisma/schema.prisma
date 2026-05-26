@@ -107,6 +107,7 @@ model WorkoutSetExecution {
   reps        Int
   load        Float
   rpe         Int
+  rir         Int?
   failed      Boolean  @default(false)
   completed   Boolean  @default(true)
   createdAt   DateTime @default(now())

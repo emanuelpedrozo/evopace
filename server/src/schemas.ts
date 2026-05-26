@@ -89,6 +89,7 @@ export const setExecutionSchema = z.object({
   reps: z.number().int().min(0),
   load: z.number().min(0),
   rpe: z.number().int().min(1).max(10),
+  rir: z.number().int().min(0).max(10).optional(),
   failed: z.boolean().default(false),
   completed: z.boolean().default(true),
 })

@@ -451,6 +451,26 @@ function parseReps(reps: string) {
   return Number.parseInt(reps, 10) || 0
 }
 
+type DailySetLog = {
+  completed: boolean
+  load: number
+  reps: number
+  rir: number
+  rpe: number
+  failed: boolean
+}
+
+function getDefaultSetLog(exercise: WorkoutExercise): DailySetLog {
+  return {
+    completed: false,
+    load: exercise.load,
+    reps: parseReps(exercise.reps),
+    rir: Math.max(0, Math.min(10, 10 - exercise.rpe)),
+    rpe: exercise.rpe,
+    failed: false,
+  }
+}
+
 function createDraftExercise(source = exerciseLibrary[0]): WorkoutExercise {
   return {
     ...source,
@@ -746,6 +766,7 @@ function App() {
   const [runs, setRuns] = useState<RunEntry[]>(initialRuns)
   const [assessments, setAssessments] = useState<Assessment[]>(initialAssessments)
   const [completedSets, setCompletedSets] = useState<Record<string, boolean>>({})
+  const [setLogs, setSetLogs] = useState<Record<string, DailySetLog>>({})
   const [restSeconds, setRestSeconds] = useState(0)
   const [restTotal, setRestTotal] = useState(0)
   const [confirmState, setConfirmState] = useState<ConfirmDialogState>(initialConfirmState)
@@ -1110,18 +1131,20 @@ function App() {
     const sets = workout.exercises.flatMap((exercise) =>
       Array.from({ length: exercise.sets }, (_, index) => {
         const setKey = `${workout.id}-${exercise.id}-${index}`
+        const log = { ...getDefaultSetLog(exercise), ...setLogs[setKey], completed: completedSets[setKey] ?? false }
 
-        if (!completedSets[setKey]) {
+        if (!log.completed) {
           return null
         }
 
         return {
           exerciseId: exercise.id,
           setNumber: index + 1,
-          reps: parseReps(exercise.reps),
-          load: exercise.load,
-          rpe: exercise.rpe,
-          failed: false,
+          reps: log.reps,
+          load: log.load,
+          rpe: log.rpe,
+          rir: log.rir,
+          failed: log.failed,
           completed: true,
         }
       }).filter((set) => set !== null),
@@ -1146,6 +1169,7 @@ function App() {
       setCompletedSets((current) =>
         Object.fromEntries(Object.entries(current).filter(([key]) => !key.startsWith(`${workout.id}-`))),
       )
+      setSetLogs((current) => Object.fromEntries(Object.entries(current).filter(([key]) => !key.startsWith(`${workout.id}-`))))
       await refreshAuthenticatedData()
       toast.success('Execução de treino registrada.')
     } catch (error) {
@@ -1313,6 +1337,7 @@ function App() {
         {activeModule === 'musculacao' ? (
           <Strength
             completedSets={completedSets}
+            setLogs={setLogs}
             onCreateWorkout={createWorkout}
             onDeleteWorkout={(id) =>
               requestConfirm('Excluir treino', 'Tem certeza que deseja excluir este treino e todos os seus exercícios?', () => void deleteWorkout(id))
@@ -1321,6 +1346,7 @@ function App() {
             restSeconds={restSeconds}
             restTotal={restTotal}
             setCompletedSets={setCompletedSets}
+            setSetLogs={setSetLogs}
             setRestSeconds={setRestSeconds}
             setRestTotal={setRestTotal}
             onSaveExecution={saveWorkoutExecution}
@@ -1935,6 +1961,8 @@ function Strength({
   restTotal,
   savingAction,
   setCompletedSets,
+  setLogs,
+  setSetLogs,
   setRestSeconds,
   setRestTotal,
   updateWorkoutLoad,
@@ -1950,6 +1978,8 @@ function Strength({
   restTotal: number
   savingAction: string
   setCompletedSets: React.Dispatch<React.SetStateAction<Record<string, boolean>>>
+  setLogs: Record<string, DailySetLog>
+  setSetLogs: React.Dispatch<React.SetStateAction<Record<string, DailySetLog>>>
   setRestSeconds: React.Dispatch<React.SetStateAction<number>>
   setRestTotal: React.Dispatch<React.SetStateAction<number>>
   updateWorkoutLoad: (workoutId: string, exerciseId: string, load: number) => void
@@ -1987,6 +2017,21 @@ function Strength({
         id: `draft-exercise-${Date.now()}-${Math.random().toString(16).slice(2)}`,
       })),
     })
+  }
+
+  function updateSetLog(setKey: string, exercise: WorkoutExercise, changes: Partial<DailySetLog>) {
+    setSetLogs((current) => ({
+      ...current,
+      [setKey]: {
+        ...getDefaultSetLog(exercise),
+        ...current[setKey],
+        ...changes,
+      },
+    }))
+
+    if (Object.prototype.hasOwnProperty.call(changes, 'completed')) {
+      setCompletedSets((current) => ({ ...current, [setKey]: changes.completed ?? false }))
+    }
   }
 
   return (
@@ -2170,43 +2215,104 @@ function Strength({
                     <div className="exercise-main">
                       <strong>{exercise.name}</strong>
                       <span>
-                        {exercise.target} · {exercise.equipment} · RPE {exercise.rpe}
+                        {exercise.target} · {exercise.equipment} · RPE alvo {exercise.rpe}
                       </span>
                       <small>{exercise.instruction}</small>
                     </div>
                     <label className="load-input">
-                      Carga
+                      Carga base
                       <input
+                        min="0"
+                        step="0.5"
                         type="number"
                         value={exercise.load}
                         onChange={(event) => updateWorkoutLoad(workout.id, exercise.id, Number(event.target.value))}
                       />
                     </label>
-                    <div className="set-buttons" role="group" aria-label={`Séries de ${exercise.name}`}>
-                      {Array.from({ length: exercise.sets }, (_, index) => {
-                        const setKey = `${workout.id}-${exercise.id}-${index}`
-                        const done = completedSets[setKey]
-                        return (
-                          <button
-                            key={setKey}
-                            className={done ? 'done' : ''}
-                            type="button"
-                            title={`Série ${index + 1}`}
-                            aria-pressed={done ?? false}
-                            onClick={() => {
-                              setCompletedSets((current) => ({ ...current, [setKey]: !current[setKey] }))
-                              setRestSeconds(exercise.rest)
-                              setRestTotal(exercise.rest)
-                            }}
-                          >
-                            {done ? <Check aria-hidden="true" /> : index + 1}
-                          </button>
-                        )
-                      })}
-                    </div>
                     <div className="progression">
                       <Sparkles aria-hidden="true" />
                       <span>{getProgression(exercise, profile)}</span>
+                    </div>
+                    <div className="daily-load-log">
+                      <div className="daily-load-heading">
+                        <strong>Cargas do dia</strong>
+                        <span>{exercise.sets} séries planejadas</span>
+                      </div>
+                      <div className="set-log-grid" role="group" aria-label={`Cargas diárias de ${exercise.name}`}>
+                        <span>Série</span>
+                        <span>Kg</span>
+                        <span>Reps</span>
+                        <span>RIR</span>
+                        <span>RPE</span>
+                        <span>Falha</span>
+                        <span>OK</span>
+                        {Array.from({ length: exercise.sets }, (_, index) => {
+                          const setKey = `${workout.id}-${exercise.id}-${index}`
+                          const log = {
+                            ...getDefaultSetLog(exercise),
+                            ...setLogs[setKey],
+                            completed: completedSets[setKey] ?? false,
+                          }
+
+                          return (
+                            <div className="set-log-row" key={setKey}>
+                              <strong>{index + 1}</strong>
+                              <input
+                                aria-label={`Carga da série ${index + 1}`}
+                                min="0"
+                                step="0.5"
+                                type="number"
+                                value={log.load}
+                                onChange={(event) => updateSetLog(setKey, exercise, { load: Number(event.target.value) })}
+                              />
+                              <input
+                                aria-label={`Repetições da série ${index + 1}`}
+                                min="0"
+                                type="number"
+                                value={log.reps}
+                                onChange={(event) => updateSetLog(setKey, exercise, { reps: Number(event.target.value) })}
+                              />
+                              <input
+                                aria-label={`Repetições na reserva da série ${index + 1}`}
+                                max="10"
+                                min="0"
+                                type="number"
+                                value={log.rir}
+                                onChange={(event) => updateSetLog(setKey, exercise, { rir: Number(event.target.value) })}
+                              />
+                              <input
+                                aria-label={`RPE da série ${index + 1}`}
+                                max="10"
+                                min="1"
+                                type="number"
+                                value={log.rpe}
+                                onChange={(event) => updateSetLog(setKey, exercise, { rpe: Number(event.target.value) })}
+                              />
+                              <button
+                                className={log.failed ? 'set-failure-toggle active' : 'set-failure-toggle'}
+                                type="button"
+                                aria-pressed={log.failed}
+                                onClick={() => updateSetLog(setKey, exercise, { failed: !log.failed })}
+                              >
+                                {log.failed ? 'Sim' : 'Não'}
+                              </button>
+                              <button
+                                className={log.completed ? 'set-complete-toggle done' : 'set-complete-toggle'}
+                                type="button"
+                                title={`Concluir série ${index + 1}`}
+                                aria-pressed={log.completed}
+                                onClick={() => {
+                                  updateSetLog(setKey, exercise, { completed: !log.completed })
+                                  setRestSeconds(exercise.rest)
+                                  setRestTotal(exercise.rest)
+                                }}
+                              >
+                                {log.completed ? <Check aria-hidden="true" /> : index + 1}
+                              </button>
+                            </div>
+                          )
+                        })}
+                      </div>
                     </div>
                   </div>
                 ))}
